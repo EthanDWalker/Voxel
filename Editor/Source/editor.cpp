@@ -15,15 +15,19 @@ void Editor::StartUp() {
   Core::MeshFileData mesh_file_data;
   Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/Sponza/Sponza.glb", mesh_file_data);
 
-  for (Core::MeshData &mesh : mesh_file_data.mesh_data_arr) {
-    Core::render_context->voxel_tree.VoxelizeMesh(mesh);
+  for (u32 i = 0; i < mesh_file_data.mesh_data_arr.size(); i++) {
+    Core::render_context->voxel_tree.VoxelizeMesh(mesh_file_data.mesh_data_arr[i]);
   }
+
+  Core::Log("far ptr count {}", Core::render_context->voxel_tree.header->far_ptr_count);
+  Core::Log("voxel count {}", Core::render_context->voxel_tree.header->voxel_count);
+  Core::Log("notification {}", Core::render_context->voxel_tree.header->notifications);
 }
 
 void Editor::Run() {
   f32 delta_time = 0.0f;
 
-  const u32 sample_size = 1000;
+  const u32 sample_size = 100;
 
   f32 frame_test_acc = 0.0f;
   u32 current_samples = 0;
@@ -84,8 +88,6 @@ void Editor::Run() {
     else
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
 
-    Core::Window::SetTitle(std::format("{} ms", timer.ElapsedMillis()));
-
     if (current_samples < sample_size) {
       frame_test_acc += timer.ElapsedMillis();
       current_samples++;
@@ -94,6 +96,7 @@ void Editor::Run() {
       current_samples++;
     }
 
+    Core::Window::SetTitle(std::format("{} fps", Round(1.0f / timer.Elapsed())));
     delta_time = timer.Elapsed();
   }
 }

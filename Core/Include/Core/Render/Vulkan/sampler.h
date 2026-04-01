@@ -1,19 +1,9 @@
 #pragma once
 
+#include "Core/Render/types.h"
 #include "volk.h"
 
 namespace Core {
-enum class SamplerFilter : u8 {
-  Linear = VK_FILTER_LINEAR,
-  Nearest = VK_FILTER_NEAREST,
-};
-
-enum class SamplerAddressMode : u8 {
-  ClampEdge,
-  ClampBorder,
-  Repeat,
-};
-
 struct VulkanSampler {
   VulkanSampler() = default;
 

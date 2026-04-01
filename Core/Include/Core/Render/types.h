@@ -17,6 +17,17 @@ struct alignas(GPU_ALIGNMENT) AABB {
   f32 _p1;
 };
 
+enum class SamplerFilter : u8 {
+  Linear,
+  Nearest,
+};
+
+enum class SamplerAddressMode : u8 {
+  ClampEdge,
+  ClampBorder,
+  Repeat,
+};
+
 enum class DeviceResourceType : u8 {
   Buffer,
   RWBuffer,

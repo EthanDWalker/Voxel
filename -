@@ -1,5 +1,57 @@
 import common;
 
+public struct TreeHeader {
+  private RWByteAddressBuffer buffer;
+
+  public property uint32_t voxel_count {
+    get {
+      uint32_t val;
+      buffer.InterlockedAdd(0, 0, val);
+      return val;
+    }
+  }
+
+  const uint32_t AllocatedVoxels(const uint32_t count) {
+    uint32_t val;
+    buffer.InterlockedAdd(0, count, val);
+    return val;
+  }
+
+  public property uint32_t allocated_page_count {
+    get { return buffer.Load<uint32_t>(4); }
+  }
+
+  public property uint32_t page_size {
+    get { return buffer.Load<uint32_t>(8); }
+  };
+
+  public property float min_bound {
+    get { return buffer.Load<float>(12); }
+  };
+
+  public property float max_bound {
+    get { return buffer.Load<float>(16); }
+  };
+
+  public property uint32_t max_depth {
+    get { return buffer.Load<uint32_t>(20); }
+  };
+
+  public uint32_t AllocateFarPtr() {
+    uint32_t val;
+    buffer.InterlockedAdd(24, 1, val);
+    return val;
+  }
+
+  public property uint32_t allocated_far_ptr_page_count {
+    get { return buffer.Load<uint32_t>(28); }
+  };
+
+  public property uint32_t far_ptr_page_size {
+    get { return buffer.Load<uint32_t>(32); }
+  };
+};
+
 struct Vertex {
   float3 position;
   uint32_t uv_data;
@@ -24,10 +76,10 @@ SamplerState sampler;
 RWStructuredBuffer<Atomic<uint32_t>> voxel_tree[];
 
 [[vk::binding(1, 1)]]
-RWStructuredBuffer<uint32_t> far_ptr_arr[];
+RWStructuredBuffer<Atomic<uint32_t>> far_ptr_arr[];
 
 [[vk::binding(2, 1)]]
-RWTreeHeader voxel_tree_header;
+TreeHeader voxel_tree_header;
 
 struct PushConstants {
   uint32_t triangle_count;
@@ -79,7 +131,7 @@ const bool RayBox2dIntersection(const float2 ray_origin, const float2 ray_dir, c
 }
 
 static const uint32_t ptr_stack_size = 7;
-static const uint32_t initial_stack_depth = (voxel_tree_header.max_depth - 1) - (ptr_stack_size - 1);
+const static uint32_t initial_stack_depth = (voxel_tree_header.max_depth - 1) - (ptr_stack_size - 1);
 
 void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint32_t3 index,
                             const uint32_t initial_depth, const uint32_t color_data) {
@@ -96,36 +148,38 @@ void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint
   }
 
   for (uint32_t depth = start_depth; depth < voxel_tree_header.max_depth; depth++) {
-    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+
+    const uint32_t page_index = ptr / voxel_tree_header.page_size;
     if (page_index >= voxel_tree_header.allocated_page_count) {
       return;
     }
 
-    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+    const uint32_t page_offset = ptr - page_index * voxel_tree_header.page_size;
 
-    uint32_t ptr_offset =
-        voxel_tree[page_index][page_offset].compareExchange(0, CHILD_PTR_OFFSET_MASK) & CHILD_PTR_OFFSET_MASK;
+    uint32_t ptr_offset = voxel_tree[page_index][page_offset].compareExchange(0, 0xFFFFFF) & 0xFFFFFF;
 
     if (ptr_offset == 0) {
       const uint32_t alloc_ptr = voxel_tree_header.AllocatedVoxels(8);
-
       ptr_offset = alloc_ptr - ptr;
 
-      if (ptr_offset >= MAX_CHILD_PTR_NO_FAR) {
+      if (ptr_offset >= 0x7FFFFF) {
         const uint32_t far_ptr = voxel_tree_header.AllocateFarPtr();
-        const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
+        const uint32_t far_ptr_page_index = far_ptr / voxel_tree_header.far_ptr_page_size;
+
+        // will lose some far ptr allocations
+        if (far_ptr_page_index >= voxel_tree_header.allocated_far_ptr_page_count)
+          return;
 
         const uint32_t far_ptr_page_offset =
-            far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
-        far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] = ptr_offset;
-
-        ptr_offset = far_ptr | FAR_PTR_BIT;
+            far_ptr - far_ptr_page_index * voxel_tree_header.far_ptr_page_size;
+        far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] = ptr_offset; // set far ptr bit
+        voxel_tree[page_index][page_offset] = far_ptr | 0x800000;
+      } else {
+        voxel_tree[page_index][page_offset] = ptr_offset;
       }
-
-      voxel_tree[page_index][page_offset] = ptr_offset;
     }
 
-    if (ptr_offset == CHILD_PTR_OFFSET_MASK) {
+    if (ptr_offset == 0xFFFFFF) {
       depth--;
     } else {
       const uint32_t3 level_index = index >> ((voxel_tree_header.max_depth - 1) - depth);
@@ -138,15 +192,17 @@ void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint
         ptr_stack[depth - initial_stack_depth] = ptr;
       }
 
-      if ((ptr_offset & FAR_PTR_BIT) != 0) {
-        const uint32_t far_ptr = ptr_offset & MAX_CHILD_PTR_NO_FAR;
-        const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
+      // far ptr
+      if (((ptr_offset >> 23) & 0b1) == 1) {
+        const uint32_t far_ptr = ptr_offset & 0x7FFFFF;
+        const uint32_t far_ptr_page_index = far_ptr / voxel_tree_header.far_ptr_page_size;
         const uint32_t far_ptr_page_offset =
-            far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
-        ptr_offset = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset];
+            far_ptr - far_ptr_page_index * voxel_tree_header.far_ptr_page_size;
+        ptr_offset = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset].load();
       } else {
-        ptr_offset = ptr_offset & MAX_CHILD_PTR_NO_FAR;
+        ptr_offset = ptr_offset & 0x7FFFFF;
       }
+
       ptr += ptr_offset + local_index;
     }
   }
@@ -256,13 +312,13 @@ void CMain(const uint32_t triangle_id: SV_DispatchThreadID, const uniform PushCo
 }
 
 void AddLeafNode(const uint32_t tree_index, const uint32_t data) {
-  const uint32_t page_index = tree_index >> voxel_tree_header.page_size_exp;
+  const uint32_t page_index = tree_index / voxel_tree_header.page_size;
 
   if (page_index >= voxel_tree_header.allocated_page_count) {
     return;
   }
 
-  const uint32_t page_offset = tree_index - (page_index << voxel_tree_header.page_size_exp);
+  const uint32_t page_offset = tree_index - page_index * voxel_tree_header.page_size;
 
   voxel_tree[page_index][page_offset].store(data);
 }

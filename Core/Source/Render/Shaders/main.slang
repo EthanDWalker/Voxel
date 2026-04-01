@@ -9,86 +9,11 @@ ConstantBuffer<Camera> camera;
 [[vk::binding(0, 2)]]
 StructuredBuffer<uint32_t> voxel_tree[];
 
-public struct TreeHeader {
-  private ByteAddressBuffer buffer;
-
-  public property uint32_t voxel_count {
-    get { return buffer.Load<uint32_t>(0); }
-  }
-
-  public property uint32_t allocated_page_count {
-    get { return buffer.Load<uint32_t>(4); }
-  }
-
-  public property uint32_t page_size {
-    get { return buffer.Load<uint32_t>(8); }
-  };
-
-  public property float min_bound {
-    get { return buffer.Load<float>(12); }
-  };
-
-  public property float max_bound {
-    get { return buffer.Load<float>(16); }
-  };
-
-  public property uint32_t max_depth {
-    get { return buffer.Load<uint32_t>(20); }
-  };
-};
-
 [[vk::binding(1, 2)]]
+RWStructuredBuffer<uint32_t> far_ptr_arr[];
+
+[[vk::binding(2, 2)]]
 TreeHeader voxel_tree_header;
-
-float4x4 LookAtInverse(const float3 eye, const float3 center, const float3 up) {
-  const float3 f = normalize(center - eye);
-  const float3 s = normalize(cross(f, up));
-  const float3 u = normalize(cross(s, f));
-
-  // clang-format off
-  const float4x4 inv_view = float4x4(
-    float4(s.x, u.x, -f.x, eye.x),
-    float4(s.y, u.y, -f.y, eye.y),
-    float4(s.z, u.z, -f.z, eye.z),
-    float4(0.0f, 0.0f, 0.0f, 1.0f)
-  );
-  // clang-format on
-
-  return inv_view;
-}
-
-float4x4 PerspectiveReverseZInverse(const float z_near, const float z_far, const float fov_y,
-                                    const float aspect_ratio) {
-  const float tan_half_fov_y = tan(fov_y / 2.0f);
-
-  float4x4 inv_proj = float4x4(0.0f);
-  inv_proj[0][0] = aspect_ratio * tan_half_fov_y;
-  inv_proj[1][1] = tan_half_fov_y;
-  inv_proj[2][3] = -1.0f;
-  inv_proj[3][2] = (-z_far + z_near) / (z_far * z_near);
-  inv_proj[3][3] = 1.0f / z_near;
-  return inv_proj;
-}
-
-bool RaySphereIntersection(const float3 ray_dir, const float3 ray_origin) {
-  const float sphere_radius = 1.0f;
-  const float3 sphere_center = float3(0.0f);
-
-  const float3 L = sphere_center - ray_origin;
-  const float tca = dot(L, ray_dir);
-  const float d2 = dot(L, L) - tca * tca;
-  if (d2 > sphere_radius * sphere_radius)
-    return false;
-
-  const float thc = sqrt(sphere_radius * sphere_radius - d2);
-  const float t0 = tca - thc;
-  const float t1 = tca + thc;
-
-  if (t0 < 0.0f && t1 < 0.0f)
-    return false;
-
-  return true;
-}
 
 bool RayAABBIntersect(const float3 ray_dir, const float3 ray_origin, const float3 bounds_min,
                       const float3 bounds_max, inout float t_min, inout float t_max) {
@@ -163,7 +88,7 @@ void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint
                             const uint32_t initial_depth, inout bool is_empty, inout uint32_t empty_depth) {
   uint32_t ptr;
   uint32_t start_depth;
-  if (initial_depth <= initial_stack_depth) {
+  if (initial_depth < initial_stack_depth) {
     const uint32_t3 initial_index = index >> (MAX_DEPTH - 1);
 
     ptr = (initial_index.x & 1) + ((initial_index.y & 1) << 1) + ((initial_index.z & 1) << 2);
@@ -178,14 +103,23 @@ void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint
     const uint32_t local_index =
         (level_index.x & 1) + ((level_index.y & 1) << 1) + ((level_index.z & 1) << 2);
 
-    const uint32_t page_index = ptr / voxel_tree_header.page_size;
-    const uint32_t node = voxel_tree[page_index][ptr - page_index * voxel_tree_header.page_size];
+    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+    const uint32_t node = voxel_tree[page_index][ptr - (page_index << voxel_tree_header.page_size_exp)];
 
     if (empty_depth >= initial_stack_depth) {
       ptr_stack[empty_depth - initial_stack_depth] = ptr;
     }
 
-    ptr += (node & 0xFFFFFF) + local_index;
+    uint32_t ptr_offset;
+    if (((node >> 23) & 0b1) == 1) {
+      const uint32_t far_ptr = node & 0x7FFFFF;
+      const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
+      const uint32_t far_ptr_page_offset =
+          far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
+      ptr_offset = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset];
+    } else {
+      ptr_offset = node & 0x7FFFFF;
+    }
 
     is_empty = !bool((node >> 24) & (0b1 << local_index));
 
@@ -193,6 +127,8 @@ void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint
 
     if (is_empty)
       break;
+
+    ptr += ptr_offset + local_index;
   }
 }
 
@@ -261,16 +197,29 @@ void Raycast(float3 ray_origin, const float3 ray_dir, out RaycastResult result) 
 
       const uint32_t local_index =
           (current_index.x & 1) + ((current_index.y & 1) << 1) + ((current_index.z & 1) << 2);
-      const uint32_t page_index = ptr / voxel_tree_header.page_size;
-      const uint32_t page_offset = ptr - page_index * voxel_tree_header.page_size;
+      const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+      const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-      const uint32_t leaf_ptr = ptr + local_index + (voxel_tree[page_index][page_offset] & 0xFFFFFF);
+      const uint32_t node = voxel_tree[page_index][page_offset];
 
-      const uint32_t leaf_page_index = leaf_ptr / voxel_tree_header.page_size;
+      uint32_t leaf_ptr = ptr + local_index;
+      if ((node & 0x800000) == 0) {
+        leaf_ptr += node & 0x7FFFFF;
+      } else {
+        const uint32_t far_ptr = node & 0x7FFFFF;
+        const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
+        const uint32_t far_ptr_page_offset =
+            far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
+
+        leaf_ptr += far_ptr_arr[far_ptr_page_index][far_ptr_page_offset];
+      }
+
+      const uint32_t leaf_page_index = leaf_ptr >> voxel_tree_header.page_size_exp;
       const uint32_t leaf_node =
-          voxel_tree[leaf_page_index][leaf_ptr - leaf_page_index * voxel_tree_header.page_size];
+          voxel_tree[leaf_page_index][leaf_ptr - (leaf_page_index << voxel_tree_header.page_size_exp)];
 
       result.hit_color = UnpackRGBA8(leaf_node);
+
       break;
     }
 
@@ -286,14 +235,14 @@ void Raycast(float3 ray_origin, const float3 ray_dir, out RaycastResult result) 
         select(t_step == intersect_t, voxel_min_bound + voxel_step * voxel_size * scale, voxel_min_bound);
     const float3 neighbor_max_bound = neighbor_min_bound + voxel_size * scale;
 
-    const float voxel_clamp_epsilon = 1e-4f * voxel_size;
+    const float voxel_clamp_epsilon = 1e-3f;
     position = clamp(position + t_step * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
                      neighbor_max_bound - voxel_clamp_epsilon);
 
     last_index = current_index;
     current_index = GetTreeIndex(position);
 
-    if (iterations > 1000) {
+    if (iterations > 100) {
       result.error = true;
       return;
     }
@@ -347,10 +296,10 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
           float4(ndc_max, 1.0f));
 
   const float3 world_min = mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
-                               float4(view_min.xyz / view_min.w + float3(0.5f), 1.0f))
+                               float4(view_min.xyz / view_min.w, 1.0f))
                                .xyz;
   const float3 world_max = mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
-                               float4(view_max.xyz / view_max.w + float3(0.5f), 1.0f))
+                               float4(view_max.xyz / view_max.w, 1.0f))
                                .xyz;
 
   const float3 ray_dir = normalize(world_max - world_min);
@@ -378,8 +327,8 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
       return;
     }
 
-    image.Store(dispatch_id, float4(res.hit_color.rgb * light_impact * shadow, 1.0f));
+    image.Store(dispatch_id, float4(res.hit_color.rgb * light_impact, 1.0f));
   } else {
-    image.Store(dispatch_id, float4(float3(0.0f), 1.0f));
+    image.Store(dispatch_id, float4(float3(1.0f), 1.0f));
   }
 }

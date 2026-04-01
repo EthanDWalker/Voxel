@@ -1,5 +1,4 @@
 #pragma once
-#include "volk.h"
 #include "types.h"
 
 namespace Core {

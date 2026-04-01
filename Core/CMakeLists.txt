@@ -27,6 +27,10 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/Source/*.cpp)
 
 add_library(core STATIC ${SOURCES})
 
+target_precompile_headers(core PRIVATE
+  ${PROJECT_SOURCE_DIR}/Include/Core/pch.h
+)
+
 target_compile_definitions(core PRIVATE 
   SHADER_DIR="${PROJECT_SOURCE_DIR}/Source/Render/Shaders"
 )

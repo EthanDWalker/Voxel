@@ -2,6 +2,8 @@
 #include <chrono>
 #include <iostream>
 
+using f32 = float;
+
 namespace Core {
 struct Timer {
   Timer() { Reset(); }

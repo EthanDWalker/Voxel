@@ -83,6 +83,7 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
   const JsonArray material_array = json_object.FindNoFail("materials");
   const JsonArray texture_array = json_object.FindNoFail("textures");
   const JsonArray image_array = json_object.FindNoFail("images");
+  const JsonArray sampler_array = json_object.FindNoFail("samplers");
 
   const u64 bin_offset = sizeof(GlbHeader) + sizeof(GlbChunkHeader) * 2 + json_chunk_header.length;
 
@@ -106,6 +107,11 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
                                                .object->FindNoFail("baseColorTexture")
                                                .value_arr[0]
                                                .object->FindNoFail("index")
+                                               .value_arr[0]
+                                               .number;
+
+        const u32 material_sampler_index = (u32)texture_array.value_arr[material_texture_index]
+                                               .object->FindNoFail("sampler")
                                                .value_arr[0]
                                                .number;
 

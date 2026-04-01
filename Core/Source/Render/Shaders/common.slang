@@ -1,5 +1,10 @@
 module common;
 
+public static const uint32_t CHILD_PTR_OFFSET_MASK = 0xFFFFFF;
+public static const uint32_t MAX_CHILD_PTR_NO_FAR = 0x7FFFFF;
+public static const uint32_t FAR_PTR_BIT = 0x800000;
+public static const uint32_t CHILD_MASK_OFFSET = 24;
+
 public struct Camera {
   public float4x4 projection;
   public float4x4 view;
@@ -11,15 +16,34 @@ public struct Camera {
   public float z_near;
 };
 
-public float4x4 Identityfloat4x4() {
+public float4x4 LookAtInverse(const float3 eye, const float3 center, const float3 up) {
+  const float3 f = normalize(center - eye);
+  const float3 s = normalize(cross(f, up));
+  const float3 u = normalize(cross(s, f));
+
   // clang-format off
-  return float4x4(
-    1,0,0,0,
-    0,1,0,0,
-    0,0,1,0,
-    0,0,0,1
+  const float4x4 inv_view = float4x4(
+    float4(s.x, u.x, -f.x, eye.x),
+    float4(s.y, u.y, -f.y, eye.y),
+    float4(s.z, u.z, -f.z, eye.z),
+    float4(0.0f, 0.0f, 0.0f, 1.0f)
   );
   // clang-format on
+
+  return inv_view;
+}
+
+public float4x4 PerspectiveReverseZInverse(const float z_near, const float z_far, const float fov_y,
+                                           const float aspect_ratio) {
+  const float tan_half_fov_y = tan(fov_y / 2.0f);
+
+  float4x4 inv_proj = float4x4(0.0f);
+  inv_proj[0][0] = aspect_ratio * tan_half_fov_y;
+  inv_proj[1][1] = tan_half_fov_y;
+  inv_proj[2][3] = -1.0f;
+  inv_proj[3][2] = (-z_far + z_near) / (z_far * z_near);
+  inv_proj[3][3] = 1.0f / z_near;
+  return inv_proj;
 }
 
 public uint32_t PackRGBA8(const float4 data) {
@@ -48,92 +72,114 @@ public float4 UnpackRGBA8(const uint32_t data) {
   return value;
 }
 
-public float inverse(float m) { return 1.0 / m; }
+public struct TreeHeader {
+  private ByteAddressBuffer buffer;
 
-public float2x2 inverse(float2x2 m) {
-  return float2x2(m[1][1], -m[0][1], -m[1][0], m[0][0]) / (m[0][0] * m[1][1] - m[0][1] * m[1][0]);
-}
-
-public float3x3 inverse(float3x3 m) {
-  float a00 = m[0][0], a01 = m[0][1], a02 = m[0][2];
-  float a10 = m[1][0], a11 = m[1][1], a12 = m[1][2];
-  float a20 = m[2][0], a21 = m[2][1], a22 = m[2][2];
-
-  float b01 = a22 * a11 - a12 * a21;
-  float b11 = -a22 * a10 + a12 * a20;
-  float b21 = a21 * a10 - a11 * a20;
-
-  float det = a00 * b01 + a01 * b11 + a02 * b21;
-
-  return float3x3(b01, (-a22 * a01 + a02 * a21), (a12 * a01 - a02 * a11), b11, (a22 * a00 - a02 * a20),
-                  (-a12 * a00 + a02 * a10), b21, (-a21 * a00 + a01 * a20), (a11 * a00 - a01 * a10)) /
-         det;
-}
-
-public float4x4 inverse(float4x4 m) {
-  float a00 = m[0][0], a01 = m[0][1], a02 = m[0][2], a03 = m[0][3], a10 = m[1][0], a11 = m[1][1],
-        a12 = m[1][2], a13 = m[1][3], a20 = m[2][0], a21 = m[2][1], a22 = m[2][2], a23 = m[2][3],
-        a30 = m[3][0], a31 = m[3][1], a32 = m[3][2], a33 = m[3][3],
-
-        b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10, b02 = a00 * a13 - a03 * a10,
-        b03 = a01 * a12 - a02 * a11, b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12,
-        b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30, b08 = a20 * a33 - a23 * a30,
-        b09 = a21 * a32 - a22 * a31, b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32,
-
-        det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-
-  return float4x4(a11 * b11 - a12 * b10 + a13 * b09, a02 * b10 - a01 * b11 - a03 * b09,
-                  a31 * b05 - a32 * b04 + a33 * b03, a22 * b04 - a21 * b05 - a23 * b03,
-                  a12 * b08 - a10 * b11 - a13 * b07, a00 * b11 - a02 * b08 + a03 * b07,
-                  a32 * b02 - a30 * b05 - a33 * b01, a20 * b05 - a22 * b02 + a23 * b01,
-                  a10 * b10 - a11 * b08 + a13 * b06, a01 * b08 - a00 * b10 - a03 * b06,
-                  a30 * b04 - a31 * b02 + a33 * b00, a21 * b02 - a20 * b04 - a23 * b00,
-                  a11 * b07 - a10 * b09 - a12 * b06, a00 * b09 - a01 * b07 + a02 * b06,
-                  a31 * b01 - a30 * b03 - a32 * b00, a20 * b03 - a21 * b01 + a22 * b00) /
-         det;
-}
-
-T GetLargestMagnitude<T : __BuiltinIntegerType, uint N>(vector<T, N> v) {
-  T m = v[0];
-
-  for (uint32_t i = 0; i < N; i++) {
-    if (abs(v[i]) > abs(m))
-      m = v[i];
+  public property uint32_t voxel_count {
+    get { return buffer.Load<uint32_t>(0); }
   }
 
-  return m;
-}
-
-T GetLargestMagnitude<T : __BuiltinFloatingPointType, uint N>(vector<T, N> v) {
-  T m = v[0];
-
-  for (uint32_t i = 0; i < N; i++) {
-    if (abs(v[i]) > abs(m))
-      m = v[i];
+  public property uint32_t allocated_page_count {
+    get { return buffer.Load<uint32_t>(4); }
   }
 
-  return m;
-}
+  public property uint32_t page_size {
+    get { return buffer.Load<uint32_t>(8); }
+  };
 
-T GetSmallestMagnitude<T : __BuiltinIntegerType, uint N>(vector<T, N> v) {
-  T m = v[0];
+  public property float min_bound {
+    get { return buffer.Load<float>(12); }
+  };
 
-  for (uint32_t i = 0; i < N; i++) {
-    if (abs(v[i]) < abs(m))
-      m = v[i];
+  public property float max_bound {
+    get { return buffer.Load<float>(16); }
+  };
+
+  public property uint32_t max_depth {
+    get { return buffer.Load<uint32_t>(20); }
+  };
+
+  public property uint32_t allocated_far_ptr_page_count {
+    get { return buffer.Load<uint32_t>(28); }
+  };
+
+  public property uint32_t far_ptr_page_size {
+    get { return buffer.Load<uint32_t>(32); }
+  };
+
+  public property uint32_t far_ptr_page_size_exp {
+    get { return buffer.Load<uint32_t>(36); }
+  };
+
+  public property uint32_t page_size_exp {
+    get { return buffer.Load<uint32_t>(40); }
+  };
+};
+
+public struct RWTreeHeader {
+  private RWByteAddressBuffer buffer;
+
+  public property uint32_t voxel_count {
+    get {
+      uint32_t val;
+      buffer.InterlockedAdd(0, 0, val);
+      return val;
+    }
   }
 
-  return m;
-}
-
-T GetSmallestMagnitude<T : __BuiltinFloatingPointType, uint N>(vector<T, N> v) {
-  T m = v[0];
-
-  for (uint32_t i = 0; i < N; i++) {
-    if (abs(v[i]) < abs(m))
-      m = v[i];
+  public const uint32_t AllocatedVoxels(const uint32_t count) {
+    uint32_t val;
+    buffer.InterlockedAdd(0, count, val);
+    return val;
   }
 
-  return m;
-}
+  public property uint32_t allocated_page_count {
+    get { return buffer.Load<uint32_t>(4); }
+  }
 
+  public property uint32_t page_size {
+    get { return buffer.Load<uint32_t>(8); }
+  };
+
+  public property float min_bound {
+    get { return buffer.Load<float>(12); }
+  };
+
+  public property float max_bound {
+    get { return buffer.Load<float>(16); }
+  };
+
+  public property uint32_t max_depth {
+    get { return buffer.Load<uint32_t>(20); }
+  };
+
+  public const uint32_t AllocateFarPtr() {
+    uint32_t val;
+    buffer.InterlockedAdd(24, 1, val);
+    return val;
+  }
+
+  public property uint32_t allocated_far_ptr_page_count {
+    get { return buffer.Load<uint32_t>(28); }
+  };
+
+  public property uint32_t far_ptr_page_size {
+    get { return buffer.Load<uint32_t>(32); }
+  };
+
+  public property uint32_t far_ptr_page_size_exp {
+    get { return buffer.Load<uint32_t>(36); }
+  };
+
+  public property uint32_t page_size_exp {
+    get { return buffer.Load<uint32_t>(40); }
+  };
+
+  public void Notify() { buffer.InterlockedAdd(44, 1); }
+};
+
+public struct RWVoxelizationData {
+  private RWByteAddressBuffer buffer;
+
+  public void DocumentAllocation() { buffer.InterlockedAdd(0, 1); }
+};

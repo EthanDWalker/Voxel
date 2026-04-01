@@ -3,7 +3,6 @@
 #include "Core/Render/Vulkan/command_pool.h"
 #include "Core/Render/Vulkan/info.h"
 #include "Core/Render/Vulkan/util.h"
-#include "Core/Util/log.h"
 #include "Core/Util/thread_pool.h"
 #include "Core/window.h"
 

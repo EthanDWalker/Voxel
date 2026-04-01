@@ -2,8 +2,6 @@
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/util.h"
-#include "Core/Util/fail.h"
-#include "Core/Util/log.h"
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
