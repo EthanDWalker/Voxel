@@ -17,6 +17,12 @@ struct alignas(GPU_ALIGNMENT) AABB {
   f32 _p1;
 };
 
+struct alignas(GPU_ALIGNMENT) DirectionalLight {
+  Vec3f32 direction;
+  f32 intesity;
+  Vec3f32 color;
+};
+
 enum class SamplerFilter : u8 {
   Linear,
   Nearest,

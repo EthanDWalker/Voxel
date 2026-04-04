@@ -4,7 +4,6 @@
 #include "Core/Render/Vulkan/info.h"
 #include "Core/Render/Vulkan/util.h"
 #include "Core/Util/fail.h"
-#include "Core/Util/log.h"
 
 namespace Core {
 void VulkanCommandBuffer::Begin() {

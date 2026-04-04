@@ -181,7 +181,8 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
       for (u32 i = 0; i < vertex_count; i++) {
         Vec2f32 uv;
         file.read((char *)&uv, sizeof(Vec2f32));
-        mesh.vertex_arr[i].uv = VecTypeCast<f16>(uv);
+        mesh.vertex_arr[i].uv.x = uv.x;
+        mesh.vertex_arr[i].uv.y = uv.y;
       }
 
       file.seekg(bin_offset + (u32)index_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,

@@ -9,7 +9,9 @@
 #include "sparse_voxel_tree.h"
 
 namespace Core {
-struct Spec {};
+struct Spec {
+  u32 max_directional_lights = 10;
+};
 
 struct RenderContext {
   Spec current_spec;
@@ -23,6 +25,10 @@ struct RenderContext {
   VulkanDescriptor image_descriptor;
   VulkanDescriptor camera_descriptor;
   VulkanBuffer camera_buffer;
+
+  VulkanDescriptor light_descriptor;
+  VulkanBuffer directional_light_buffer;
+  u32 directional_light_count;
 
   SparseVoxelTree voxel_tree;
 

@@ -75,6 +75,7 @@ void VulkanContext::StartUp() {
   features_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
   features_13.dynamicRendering = true;
   features_13.synchronization2 = true;
+  features_13.shaderIntegerDotProduct = true;
 
   VkPhysicalDeviceVulkan12Features features_12{};
   features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;

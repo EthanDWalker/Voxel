@@ -22,6 +22,7 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.AddDescriptor(image_descriptor);
     pipeline_builder.AddDescriptor(camera_descriptor);
     pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
+    pipeline_builder.AddDescriptor(light_descriptor);
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "main.slang");
     PipelineBuildManager::Build(pipeline_builder, main_pipeline);
   }
@@ -36,6 +37,9 @@ void RenderContext::Create(const Spec &spec) {
 
   swapchain.Create(window_size);
 
+  directional_light_buffer.Create(sizeof(DirectionalLight) * spec.max_directional_lights + sizeof(u32),
+                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
   camera_buffer.Create(sizeof(Camera::UBO),
                        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
@@ -44,6 +48,9 @@ void RenderContext::Create(const Spec &spec) {
 
   DescriptorBuilder::Bind<DeviceResourceType::RWStorageImage>(&main_image);
   DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &image_descriptor);
+
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&directional_light_buffer);
+  DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &light_descriptor);
 
   frame_staging_buffer.Create(sizeof(Camera::UBO), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, /*host=*/true);
 

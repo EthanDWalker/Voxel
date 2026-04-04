@@ -51,7 +51,7 @@ void Frame(Camera &camera) {
 
     cmd.BindPipeline(render_context->main_pipeline);
     cmd.BindDescriptors({render_context->image_descriptor, render_context->camera_descriptor,
-                         render_context->voxel_tree.tree_descriptor});
+                         render_context->voxel_tree.tree_descriptor, render_context->light_descriptor});
     cmd.Dispatch(Vec3u32(render_context->main_image.GetVec2u32() / 8 + 1, 1));
   }
 

@@ -1,41 +1,59 @@
 import common;
+public module voxelize;
+
+static const uint32_t CHILD_PTR_OFFSET_MASK = 0xFFFFFF;
+static const uint32_t MAX_CHILD_PTR_NO_FAR = 0x7FFFFF;
+static const uint32_t FAR_PTR_BIT = 0x800000;
+static const uint32_t CHILD_MASK_OFFSET = 24;
+static const uint32_t UINT32_MAX = 0xFFFFFFFF;
+static const bool CONSERVATINVE_VOXELIZATION = false;
+
+struct RWVoxelizationData {
+  private RWByteAddressBuffer buffer;
+
+  void DocumentAllocation() { buffer.InterlockedAdd(0, 1); }
+  void DocumentFarPtr() { buffer.InterlockedAdd(4, 1); }
+  uint32_t AllocateNewVoxelPtr() {
+    uint32_t val;
+    buffer.InterlockedAdd(8, 2, val);
+    return val;
+  }
+};
 
 struct Vertex {
   float3 position;
-  uint32_t uv_data;
+  private uint32_t uv_data;
 
   property float2 uv {
     get { return float2(f16tof32(uv_data >> 16), f16tof32(uv_data & 0xFFFF)); }
   }
 }
 
-static const uint32_t VOXEL_PTR_OFFSET = 24;
+bool RayBox2dIntersection(const float2 ray_origin, const float2 ray_dir, const float2 box_min,
+                          const float2 box_max) {
+  const float2 inv_dir = 1.0f / ray_dir;
 
-[[vk::binding(0, 0)]]
-StructuredBuffer<uint32_t> index_arr;
-[[vk::binding(1, 0)]]
-StructuredBuffer<Vertex> vertex_arr;
-[[vk::binding(2, 0)]]
-Texture2D<float4> albedo_texture;
-[[vk::binding(3, 0)]]
-SamplerState sampler;
+  const float2 t0 = (box_min - ray_origin) * inv_dir;
+  const float2 t1 = (box_max - ray_origin) * inv_dir;
 
-[[vk::binding(0, 1)]]
-RWStructuredBuffer<Atomic<uint32_t>> voxel_tree[];
+  const float2 tmin2 = min(t0, t1);
+  const float2 tmax2 = max(t0, t1);
 
-[[vk::binding(1, 1)]]
-RWStructuredBuffer<uint32_t> far_ptr_arr[];
+  const float tmin = max(tmin2.x, tmin2.y);
+  const float tmax = min(tmax2.x, tmax2.y);
 
-[[vk::binding(2, 1)]]
-RWTreeHeader voxel_tree_header;
+  return tmax >= max(tmin, 0.0f);
+}
 
-struct PushConstants {
-  uint32_t triangle_count;
-};
-
-static const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
-static const float grid_n = 1 << voxel_tree_header.max_depth;
-static const float voxel_size = box_size / grid_n;
+vector<uint32_t, N> GetTreeIndex<let N : int>(const RWTreeHeader voxel_tree_header, vector<float, N> p) {
+  vector<uint32_t, N> tree_index =
+      vector<uint32_t, N>(floor(
+          ((p - voxel_tree_header.min_bound) / (voxel_tree_header.max_bound - voxel_tree_header.min_bound)) *
+          (1 << voxel_tree_header.max_depth))) +
+      1;
+  tree_index = select(tree_index == (1 << voxel_tree_header.max_depth) + 1, tree_index - 1, tree_index);
+  return tree_index - 1;
+}
 
 float3 GetBarycentric<let N : int>(const vector<float, N> positions[3], const vector<float, N> point) {
   const vector<float, N> v0 = positions[2] - positions[0];
@@ -55,106 +73,12 @@ float3 GetBarycentric<let N : int>(const vector<float, N> positions[3], const ve
   return coords;
 }
 
-vector<uint32_t, N> GetTreeIndex<let N : int>(vector<float, N> p) {
-  vector<uint32_t, N> tree_index =
-      vector<uint32_t, N>(floor(((p - voxel_tree_header.min_bound) / box_size) * grid_n)) + 1;
-  tree_index = select(tree_index == grid_n + 1, tree_index - 1, tree_index);
-  return tree_index - 1;
-}
+interface IVoxelizeFn {
+  void operator()(const uint32_t3 index, const uint32_t depth, const float2 uv);
+};
 
-const bool RayBox2dIntersection(const float2 ray_origin, const float2 ray_dir, const float2 box_min,
-                                const float2 box_max) {
-  const float2 inv_dir = 1.0f / ray_dir;
-
-  const float2 t0 = (box_min - ray_origin) * inv_dir;
-  const float2 t1 = (box_max - ray_origin) * inv_dir;
-
-  const float2 tmin2 = min(t0, t1);
-  const float2 tmax2 = max(t0, t1);
-
-  const float tmin = max(tmin2.x, tmin2.y);
-  const float tmax = min(tmax2.x, tmax2.y);
-
-  return tmax >= max(tmin, 0.0f);
-}
-
-static const uint32_t ptr_stack_size = 7;
-static const uint32_t initial_stack_depth = (voxel_tree_header.max_depth - 1) - (ptr_stack_size - 1);
-
-void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint32_t3 index,
-                            const uint32_t initial_depth, const uint32_t color_data) {
-  uint32_t ptr;
-  uint32_t start_depth;
-  if (initial_depth < initial_stack_depth) {
-    const uint32_t3 initial_index = index >> (voxel_tree_header.max_depth - 1);
-
-    ptr = (initial_index.x & 1) + ((initial_index.y & 1) << 1) + ((initial_index.z & 1) << 2);
-    start_depth = 1;
-  } else {
-    start_depth = initial_depth;
-    ptr = ptr_stack[start_depth - initial_stack_depth];
-  }
-
-  for (uint32_t depth = start_depth; depth < voxel_tree_header.max_depth; depth++) {
-    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-    if (page_index >= voxel_tree_header.allocated_page_count) {
-      return;
-    }
-
-    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-    uint32_t ptr_offset =
-        voxel_tree[page_index][page_offset].compareExchange(0, CHILD_PTR_OFFSET_MASK) & CHILD_PTR_OFFSET_MASK;
-
-    if (ptr_offset == 0) {
-      const uint32_t alloc_ptr = voxel_tree_header.AllocatedVoxels(8);
-
-      ptr_offset = alloc_ptr - ptr;
-
-      if (ptr_offset >= MAX_CHILD_PTR_NO_FAR) {
-        const uint32_t far_ptr = voxel_tree_header.AllocateFarPtr();
-        const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
-
-        const uint32_t far_ptr_page_offset =
-            far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
-        far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] = ptr_offset;
-
-        ptr_offset = far_ptr | FAR_PTR_BIT;
-      }
-
-      voxel_tree[page_index][page_offset] = ptr_offset;
-    }
-
-    if (ptr_offset == CHILD_PTR_OFFSET_MASK) {
-      depth--;
-    } else {
-      const uint32_t3 level_index = index >> ((voxel_tree_header.max_depth - 1) - depth);
-      const uint32_t local_index =
-          (level_index.x & 1) + ((level_index.y & 1) << 1) + ((level_index.z & 1) << 2);
-
-      voxel_tree[page_index][page_offset].or(1 << (local_index + VOXEL_PTR_OFFSET)); // set valid node
-
-      if (depth >= initial_stack_depth) {
-        ptr_stack[depth - initial_stack_depth] = ptr;
-      }
-
-      if ((ptr_offset & FAR_PTR_BIT) != 0) {
-        const uint32_t far_ptr = ptr_offset & MAX_CHILD_PTR_NO_FAR;
-        const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
-        const uint32_t far_ptr_page_offset =
-            far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
-        ptr_offset = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset];
-      } else {
-        ptr_offset = ptr_offset & MAX_CHILD_PTR_NO_FAR;
-      }
-      ptr += ptr_offset + local_index;
-    }
-  }
-
-  AddLeafNode(ptr, color_data);
-}
-
-void VoxelizeBarycentric(const Vertex vertices[3]) {
+void Voxelize(const Vertex vertices[3], const uint32_t depth, const RWTreeHeader voxel_tree_header,
+              const IVoxelizeFn voxelize_fn) {
   const float3 positions[3] = {
     vertices[0].position,
     vertices[1].position,
@@ -169,9 +93,9 @@ void VoxelizeBarycentric(const Vertex vertices[3]) {
 
   const float3 normal = cross(positions[2] - positions[0], positions[1] - positions[0]);
   const float3 abs_normal = abs(cross(positions[1] - positions[0], positions[2] - positions[0]));
-  const uint32_t projected_axis = (uint32_t)dot(float3(0, 1, 2), step(abs_normal.yzx, abs_normal.xyz) *
-                                                                     step(abs_normal.zxy, abs_normal.xyz));
-
+  const uint32_t projected_axis = (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) ? 0
+                                  : (abs_normal.y > abs_normal.z)                              ? 1
+                                                                                               : 2;
   const uint32_t2 non_projected_axises_map[3] = {
     /*x:*/ uint32_t2(1, 2),
     /*y:*/ uint32_t2(0, 2),
@@ -183,6 +107,10 @@ void VoxelizeBarycentric(const Vertex vertices[3]) {
   const float2 plane_slope =
       -float2(normal[non_projected_axises[0]], normal[non_projected_axises[1]]) / normal[projected_axis];
 
+  const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
+  const float grid_n = 1 << voxel_tree_header.max_depth;
+  const float voxel_size = box_size / grid_n;
+
   const float half_voxel_size = voxel_size * 0.5f;
 
   const float2 projected_positions[3] = {
@@ -192,9 +120,9 @@ void VoxelizeBarycentric(const Vertex vertices[3]) {
   };
 
   const float2 projected_edges[3] = {
-    projected_positions[1] - projected_positions[0],
-    projected_positions[2] - projected_positions[1],
-    projected_positions[0] - projected_positions[2],
+    normalize(projected_positions[1] - projected_positions[0]),
+    normalize(projected_positions[2] - projected_positions[1]),
+    normalize(projected_positions[0] - projected_positions[2]),
   };
 
   const float min_x = min3(projected_positions[0].x, projected_positions[1].x, projected_positions[2].x);
@@ -203,66 +131,49 @@ void VoxelizeBarycentric(const Vertex vertices[3]) {
   const float max_x = max3(projected_positions[0].x, projected_positions[1].x, projected_positions[2].x);
   const float max_y = max3(projected_positions[0].y, projected_positions[1].y, projected_positions[2].y);
 
-  const uint32_t2 min_tree_index = GetTreeIndex(float2(min_x, min_y));
-  const uint32_t2 max_tree_index = GetTreeIndex(float2(max_x, max_y));
-
-  uint32_t3 albedo_texture_size;
-  albedo_texture.GetDimensions(0, albedo_texture_size.x, albedo_texture_size.y, albedo_texture_size.z);
+  const uint32_t2 min_tree_index = GetTreeIndex(voxel_tree_header, float2(min_x, min_y));
+  const uint32_t2 max_tree_index = GetTreeIndex(voxel_tree_header, float2(max_x, max_y));
 
   uint32_t3 last_index = 0xFFFFFFFF;
-  uint32_t ptr_stack[ptr_stack_size];
 
   for (uint32_t x = min_tree_index.x; x <= max_tree_index.x; x++) {
     for (uint32_t y = min_tree_index.y; y <= max_tree_index.y; y++) {
-      const float2 voxel_position = float2(x, y) * voxel_size + voxel_tree_header.min_bound + half_voxel_size;
+      const float2 voxel_min_bound = float2(x, y) * voxel_size + voxel_tree_header.min_bound;
+      const float2 voxel_max_bound = voxel_min_bound + voxel_size;
+      const float2 voxel_center = voxel_min_bound + half_voxel_size;
 
-      const float3 barycentric = GetBarycentric(projected_positions, voxel_position);
-      uint32_t3 tree_index;
-      tree_index[non_projected_axises[0]] = x;
-      tree_index[non_projected_axises[1]] = y;
-      tree_index[projected_axis] = GetTreeIndex(positions[0][projected_axis] +
-                                                dot(voxel_position - projected_positions[0], plane_slope));
+      const float3 barycentric = GetBarycentric(projected_positions, voxel_center);
 
-      if (min3(barycentric.x, barycentric.y, barycentric.z) >= 0.0f) {
-        const float2 uv = uvs[0] * barycentric.x + uvs[1] * barycentric.y + uvs[2] * barycentric.z;
+      bool edge_hit = false;
 
-        const uint32_t3 index_diff = tree_index ^ last_index;
-        const uint32_t invalid_stack_size = firstbithigh(index_diff.x | index_diff.y | index_diff.z);
-
-        BuildPtrStackFromIndex(ptr_stack, tree_index, 1,
-                               PackRGBA8(albedo_texture.SampleLevel(sampler, uv.yx, 0.0f)));
+      if (CONSERVATINVE_VOXELIZATION) {
+        for (uint32_t i = 0; i < 3; i++) {
+          if (RayBox2dIntersection(projected_positions[i], projected_edges[i], voxel_min_bound,
+                                   voxel_max_bound)) {
+            edge_hit = true;
+            break;
+          }
+        }
       }
 
-      last_index = tree_index;
+      if (min3(barycentric.x, barycentric.y, barycentric.z) >= 0.0f || edge_hit) {
+        const float2 uv = uvs[0] * barycentric.x + uvs[1] * barycentric.y + uvs[2] * barycentric.z;
+
+        uint32_t3 tree_index;
+        tree_index[non_projected_axises[0]] = x;
+        tree_index[non_projected_axises[1]] = y;
+        tree_index[projected_axis] =
+            GetTreeIndex(voxel_tree_header, positions[0][projected_axis] +
+                                                dot(voxel_center - projected_positions[0], plane_slope));
+
+        const uint32_t3 diff = tree_index ^ last_index;
+        const uint32_t invalidated_depth = firstbithigh(diff.x | diff.y | diff.z);
+
+        if (invalidated_depth >= (voxel_tree_header.max_depth - (depth + 1))) {
+          voxelize_fn(tree_index, depth, uv);
+          last_index = tree_index;
+        }
+      }
     }
   }
-}
-
-[[shader("compute")]]
-[numthreads(64, 1, 1)]
-void CMain(const uint32_t triangle_id: SV_DispatchThreadID, const uniform PushConstants pc) {
-  if (triangle_id >= pc.triangle_count)
-    return;
-
-  // get vertices of dispatch
-  const uint32_t index_offset = triangle_id * 3;
-  const Vertex vertices[3] = {
-    vertex_arr[index_offset + 0],
-    vertex_arr[index_offset + 1],
-    vertex_arr[index_offset + 2],
-  };
-
-  VoxelizeBarycentric(vertices);
-}
-
-void AddLeafNode(const uint32_t tree_index, const uint32_t data) {
-  const uint32_t page_index = tree_index >> voxel_tree_header.page_size_exp;
-
-  if (page_index >= voxel_tree_header.allocated_page_count) {
-    return;
-  }
-
-  const uint32_t page_offset = tree_index - (page_index << voxel_tree_header.page_size_exp);
-
-  voxel_tree[page_index][page_offset].store(data);
 }

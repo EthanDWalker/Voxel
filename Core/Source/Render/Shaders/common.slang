@@ -1,22 +1,49 @@
-module common;
+public module common;
 
-public static const uint32_t CHILD_PTR_OFFSET_MASK = 0xFFFFFF;
-public static const uint32_t MAX_CHILD_PTR_NO_FAR = 0x7FFFFF;
-public static const uint32_t FAR_PTR_BIT = 0x800000;
-public static const uint32_t CHILD_MASK_OFFSET = 24;
-
-public struct Camera {
-  public float4x4 projection;
-  public float4x4 view;
-  public float3 position;
-  public float aspect_ratio;
-  public float3 front;
-  public float fov_y;
-  public float3 up;
-  public float z_near;
+struct Camera {
+  float4x4 projection;
+  float4x4 view;
+  float3 position;
+  float aspect_ratio;
+  float3 front;
+  float fov_y;
+  float3 up;
+  float z_near;
 };
 
-public float4x4 LookAtInverse(const float3 eye, const float3 center, const float3 up) {
+struct DirectionalLight {
+  float3 direction;
+  float intesity;
+  float3 color;
+};
+
+uint32_t PackRGBA8(const float4 data) {
+  const float ratio = 255.0f;
+
+  uint32_t value = 0;
+
+  value |= uint32_t(data.r * ratio) << 24;
+  value |= uint32_t(data.g * ratio) << 16;
+  value |= uint32_t(data.b * ratio) << 8;
+  value |= uint32_t(data.a * ratio) << 0;
+
+  return value;
+}
+
+float4 UnpackRGBA8(const uint32_t data) {
+  const float ratio = 1.0f / 255.0f;
+
+  float4 value;
+
+  value.r = ((data >> 24) & 0xFF) * ratio;
+  value.g = ((data >> 16) & 0xFF) * ratio;
+  value.b = ((data >> 8) & 0xFF) * ratio;
+  value.a = ((data >> 0) & 0xFF) * ratio;
+
+  return value;
+}
+
+float4x4 LookAtInverse(const float3 eye, const float3 center, const float3 up) {
   const float3 f = normalize(center - eye);
   const float3 s = normalize(cross(f, up));
   const float3 u = normalize(cross(s, f));
@@ -33,8 +60,8 @@ public float4x4 LookAtInverse(const float3 eye, const float3 center, const float
   return inv_view;
 }
 
-public float4x4 PerspectiveReverseZInverse(const float z_near, const float z_far, const float fov_y,
-                                           const float aspect_ratio) {
+float4x4 PerspectiveReverseZInverse(const float z_near, const float z_far, const float fov_y,
+                                    const float aspect_ratio) {
   const float tan_half_fov_y = tan(fov_y / 2.0f);
 
   float4x4 inv_proj = float4x4(0.0f);
@@ -43,83 +70,62 @@ public float4x4 PerspectiveReverseZInverse(const float z_near, const float z_far
   inv_proj[2][3] = -1.0f;
   inv_proj[3][2] = (-z_far + z_near) / (z_far * z_near);
   inv_proj[3][3] = 1.0f / z_near;
+
   return inv_proj;
 }
 
-public uint32_t PackRGBA8(const float4 data) {
-  const float ratio = 255.0f;
-
-  uint32_t value = 0;
-
-  value |= uint32_t(data.r * ratio) << 24;
-  value |= uint32_t(data.g * ratio) << 16;
-  value |= uint32_t(data.b * ratio) << 8;
-  value |= uint32_t(data.a * ratio) << 0;
-
-  return value;
-}
-
-public float4 UnpackRGBA8(const uint32_t data) {
-  const float ratio = 1.0f / 255.0f;
-
-  float4 value;
-
-  value.r = ((data >> 24) & 0xFF) * ratio;
-  value.g = ((data >> 16) & 0xFF) * ratio;
-  value.b = ((data >> 8) & 0xFF) * ratio;
-  value.a = ((data >> 0) & 0xFF) * ratio;
-
-  return value;
-}
-
-public struct TreeHeader {
+struct TreeHeader {
   private ByteAddressBuffer buffer;
 
-  public property uint32_t voxel_count {
+  property uint32_t voxel_count {
     get { return buffer.Load<uint32_t>(0); }
   }
 
-  public property uint32_t allocated_page_count {
+  property uint32_t allocated_page_count {
     get { return buffer.Load<uint32_t>(4); }
   }
 
-  public property uint32_t page_size {
+  property uint32_t page_size {
     get { return buffer.Load<uint32_t>(8); }
   };
 
-  public property float min_bound {
+  property float min_bound {
     get { return buffer.Load<float>(12); }
   };
 
-  public property float max_bound {
+  property float max_bound {
     get { return buffer.Load<float>(16); }
   };
 
-  public property uint32_t max_depth {
+  property uint32_t max_depth {
     get { return buffer.Load<uint32_t>(20); }
   };
 
-  public property uint32_t allocated_far_ptr_page_count {
+  property uint32_t allocated_far_ptr_page_count {
     get { return buffer.Load<uint32_t>(28); }
   };
 
-  public property uint32_t far_ptr_page_size {
+  property uint32_t far_ptr_page_size {
     get { return buffer.Load<uint32_t>(32); }
   };
 
-  public property uint32_t far_ptr_page_size_exp {
+  property uint32_t far_ptr_page_size_exp {
     get { return buffer.Load<uint32_t>(36); }
   };
 
-  public property uint32_t page_size_exp {
+  property uint32_t page_size_exp {
     get { return buffer.Load<uint32_t>(40); }
   };
+
+  void GetLevelPageOffset(const uint32_t level) {
+    buffer.Load<uint32_t>(48 + (level * sizeof(uint32_t)));
+  }
 };
 
-public struct RWTreeHeader {
+struct RWTreeHeader {
   private RWByteAddressBuffer buffer;
 
-  public property uint32_t voxel_count {
+  property uint32_t voxel_count {
     get {
       uint32_t val;
       buffer.InterlockedAdd(0, 0, val);
@@ -127,59 +133,69 @@ public struct RWTreeHeader {
     }
   }
 
-  public const uint32_t AllocatedVoxels(const uint32_t count) {
+  const uint32_t AllocatedVoxels(const uint32_t count) {
     uint32_t val;
     buffer.InterlockedAdd(0, count, val);
     return val;
   }
 
-  public property uint32_t allocated_page_count {
+  property uint32_t allocated_page_count {
     get { return buffer.Load<uint32_t>(4); }
   }
 
-  public property uint32_t page_size {
+  property uint32_t page_size {
     get { return buffer.Load<uint32_t>(8); }
   };
 
-  public property float min_bound {
+  property float min_bound {
     get { return buffer.Load<float>(12); }
   };
 
-  public property float max_bound {
+  property float max_bound {
     get { return buffer.Load<float>(16); }
   };
 
-  public property uint32_t max_depth {
+  property uint32_t max_depth {
     get { return buffer.Load<uint32_t>(20); }
   };
 
-  public const uint32_t AllocateFarPtr() {
+  const uint32_t AllocateFarPtr() {
     uint32_t val;
     buffer.InterlockedAdd(24, 1, val);
     return val;
   }
 
-  public property uint32_t allocated_far_ptr_page_count {
+  property uint32_t allocated_far_ptr_page_count {
     get { return buffer.Load<uint32_t>(28); }
   };
 
-  public property uint32_t far_ptr_page_size {
+  property uint32_t far_ptr_page_size {
     get { return buffer.Load<uint32_t>(32); }
   };
 
-  public property uint32_t far_ptr_page_size_exp {
+  property uint32_t far_ptr_page_size_exp {
     get { return buffer.Load<uint32_t>(36); }
   };
 
-  public property uint32_t page_size_exp {
+  property uint32_t page_size_exp {
     get { return buffer.Load<uint32_t>(40); }
   };
 
-  public void Notify() { buffer.InterlockedAdd(44, 1); }
+  void Notify(const uint32_t v = 1) { buffer.InterlockedAdd(44, v); }
+
+  void GetLevelPageOffset(const uint32_t level) {
+    buffer.Load<uint32_t>(48 + (level * sizeof(uint32_t)));
+  }
 };
 
-public struct RWVoxelizationData {
-  private RWByteAddressBuffer buffer;
+struct CountedBuffer<T> {
+  private ByteAddressBuffer buffer;
 
-  public void DocumentAllocation() { buffer.InterlockedAdd(0, 1); }
+  property uint32_t count {
+    get { return buffer.Load<uint32_t>(0); }
+  }
+
+  __subscript(const uint32_t index)->T {
+    get { return buffer.Load<T>(sizeof(uint32_t) + sizeof(DirectionalLight) * index); }
+  }
 };

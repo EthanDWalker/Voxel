@@ -1,6 +1,6 @@
 #pragma once
 #include "Core/Render/types.h"
-#include <vector>
 
 namespace Core {
+u32 AddDirectionalLight(const DirectionalLight &dir_light);
 }; // namespace Core
