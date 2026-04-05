@@ -8,6 +8,7 @@
 #include "Core/input.h"
 #include "Core/window.h"
 #include <bitset>
+#include <chrono>
 #include <filesystem>
 
 void PrintNode(const u32 node) {
@@ -43,15 +44,31 @@ void Editor::StartUp() {
     Core::render_context->voxel_tree.VoxelizeMesh(mesh_file_data.mesh_data_arr[i]);
   }
 
+  Core::Log("---");
+
+  for (u32 i = 0; i < Core::SparseVoxelTree::MAX_VOXLELIZE_DEPTH; i++) {
+    Core::Log("level {} page offset: {}", i,
+              ((Core::TreeHeader *)Core::render_context->voxel_tree.tree_header_host_buffer.address)
+                  ->level_page_offset[i]);
+  }
+
+  Core::Log("---");
+
+  for (u32 i = 0; i < Core::SparseVoxelTree::MAX_VOXLELIZE_DEPTH; i++) {
+    Core::Log("level {} voxel count: {}", i,
+              ((Core::TreeHeader *)Core::render_context->voxel_tree.tree_header_host_buffer.address)
+                  ->level_voxel_count[i]);
+  }
+
+  Core::Log(
+      "far ptr count {}",
+      ((Core::TreeHeader *)Core::render_context->voxel_tree.tree_header_host_buffer.address)->far_ptr_count);
+
   const Core::DirectionalLight dir_light = {
       .direction = Normalize(Vec3f32(-0.1f, -1.0f, -0.1f)),
       .intesity = 1.0f,
       .color = Vec3f32(1.0f),
   };
-
-  for (u32 i = 0; i < Core::SparseVoxelTree::MAX_VOXLELIZE_DEPTH - 1; i++) {
-    Core::Log("level {} has {} voxels", i, Core::render_context->voxel_tree.level_voxels[i]);
-  }
 
   Core::AddDirectionalLight(dir_light);
 }

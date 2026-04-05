@@ -39,24 +39,27 @@ void DocumentAllocation(const uint32_t3 index, const uint32_t depth) {
     const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
     const uint32_t local_index = GetLocalIndex(index, i);
 
-    const uint32_t node = voxel_tree[page_index][page_offset].load();
+    const uint32_t node =
+        voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(i - 1)][page_offset].load();
 
     if ((node & FAR_PTR_BIT) == 0) {
-      ptr += (node & MAX_CHILD_PTR_NO_FAR) + local_index;
+      ptr = (node & MAX_CHILD_PTR_NO_FAR) + local_index;
     } else {
       const uint32_t far_ptr = node & MAX_CHILD_PTR_NO_FAR;
       const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
       const uint32_t far_ptr_page_offset =
           far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
 
-      ptr += far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] + local_index;
+      ptr = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] + local_index;
     }
   }
 
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-  const uint32_t res = voxel_tree[page_index][page_offset].compareExchange(0, UINT32_MAX);
+  const uint32_t res =
+      voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(depth - 1)][page_offset].compareExchange(
+          0, UINT32_MAX);
 
   if (res == 0) {
     voxelization_data.DocumentAllocation();

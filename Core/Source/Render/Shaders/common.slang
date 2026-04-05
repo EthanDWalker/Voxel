@@ -74,119 +74,68 @@ float4x4 PerspectiveReverseZInverse(const float z_near, const float z_far, const
   return inv_proj;
 }
 
-struct TreeHeader {
-  private ByteAddressBuffer buffer;
+interface IBuffer {
+  T Load<T, let I : uint32_t>();
+};
 
-  property uint32_t voxel_count {
-    get { return buffer.Load<uint32_t>(0); }
-  }
+struct RWByteBuffer : IBuffer {
+  RWByteAddressBuffer data;
+  T Load<T, let I : uint32_t>() { return data.Load<T>(I); }
+};
 
-  property uint32_t allocated_page_count {
-    get { return buffer.Load<uint32_t>(4); }
-  }
+struct ByteBuffer : IBuffer {
+  ByteAddressBuffer data;
+  T Load<T, let I : uint32_t>() { return data.Load<T>(I); }
+};
 
-  property uint32_t page_size {
-    get { return buffer.Load<uint32_t>(8); }
-  };
+struct BaseTreeHeader<T>
+    where T : IBuffer {
+  T buffer;
 
   property float min_bound {
-    get { return buffer.Load<float>(12); }
+    get { return buffer.Load<float, 0>(); }
   };
 
   property float max_bound {
-    get { return buffer.Load<float>(16); }
+    get { return buffer.Load<float, 4>(); }
   };
 
   property uint32_t max_depth {
-    get { return buffer.Load<uint32_t>(20); }
-  };
-
-  property uint32_t allocated_far_ptr_page_count {
-    get { return buffer.Load<uint32_t>(28); }
-  };
-
-  property uint32_t far_ptr_page_size {
-    get { return buffer.Load<uint32_t>(32); }
+    get { return buffer.Load<uint32_t, 8>(); }
   };
 
   property uint32_t far_ptr_page_size_exp {
-    get { return buffer.Load<uint32_t>(36); }
+    get { return buffer.Load<uint32_t, 12>(); }
   };
 
   property uint32_t page_size_exp {
-    get { return buffer.Load<uint32_t>(40); }
+    get { return buffer.Load<uint32_t, 16>(); }
   };
-
-  void GetLevelPageOffset(const uint32_t level) {
-    buffer.Load<uint32_t>(48 + (level * sizeof(uint32_t)));
-  }
 };
 
-struct RWTreeHeader {
-  private RWByteAddressBuffer buffer;
-
-  property uint32_t voxel_count {
-    get {
-      uint32_t val;
-      buffer.InterlockedAdd(0, 0, val);
-      return val;
-    }
-  }
-
-  const uint32_t AllocatedVoxels(const uint32_t count) {
-    uint32_t val;
-    buffer.InterlockedAdd(0, count, val);
-    return val;
-  }
-
-  property uint32_t allocated_page_count {
-    get { return buffer.Load<uint32_t>(4); }
-  }
-
-  property uint32_t page_size {
-    get { return buffer.Load<uint32_t>(8); }
-  };
-
-  property float min_bound {
-    get { return buffer.Load<float>(12); }
-  };
-
-  property float max_bound {
-    get { return buffer.Load<float>(16); }
-  };
-
-  property uint32_t max_depth {
-    get { return buffer.Load<uint32_t>(20); }
-  };
-
+struct RWTreeHeader : BaseTreeHeader<RWByteBuffer> {
   const uint32_t AllocateFarPtr() {
     uint32_t val;
-    buffer.InterlockedAdd(24, 1, val);
+    buffer.data.InterlockedAdd(20, 1, val);
     return val;
   }
 
-  property uint32_t allocated_far_ptr_page_count {
-    get { return buffer.Load<uint32_t>(28); }
-  };
+  const uint32_t GetLevelPageOffset(const uint32_t level) {
+    return buffer.data.Load<uint32_t>(24 + (level * sizeof(uint32_t)));
+  }
 
-  property uint32_t far_ptr_page_size {
-    get { return buffer.Load<uint32_t>(32); }
-  };
-
-  property uint32_t far_ptr_page_size_exp {
-    get { return buffer.Load<uint32_t>(36); }
-  };
-
-  property uint32_t page_size_exp {
-    get { return buffer.Load<uint32_t>(40); }
-  };
-
-  void Notify(const uint32_t v = 1) { buffer.InterlockedAdd(44, v); }
-
-  void GetLevelPageOffset(const uint32_t level) {
-    buffer.Load<uint32_t>(48 + (level * sizeof(uint32_t)));
+  const uint32_t AllocateVoxels(const uint32_t level, const uint32_t amount) {
+    uint32_t val;
+    buffer.data.InterlockedAdd(24 + (max_depth + level) * sizeof(uint32_t), amount, val);
+    return val;
   }
 };
+
+struct TreeHeader : BaseTreeHeader<ByteBuffer> {
+  const uint32_t GetLevelPageOffset(const uint32_t level) {
+    return buffer.data.Load<uint32_t>(24 + (level * sizeof(uint32_t)));
+  }
+}
 
 struct CountedBuffer<T> {
   private ByteAddressBuffer buffer;

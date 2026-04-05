@@ -38,8 +38,8 @@ void CMain(const uint32_t dispatch_id: SV_DispatchThreadID, const uniform PushCo
     const uint32_t far_ptr_page_offset =
         far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
     far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] = child_ptr;
-    voxel_tree[page_index][page_offset] = far_ptr | FAR_PTR_BIT;
+    voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(pc.depth - 1)][page_offset] = far_ptr | FAR_PTR_BIT;
   } else {
-    voxel_tree[page_index][page_offset] = child_ptr;
+    voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(pc.depth - 1)][page_offset] = child_ptr;
   }
 }
