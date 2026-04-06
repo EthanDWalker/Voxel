@@ -8,12 +8,9 @@ RWTexture2D<float4> image;
 ConstantBuffer<Camera> camera;
 
 [[vk::binding(0, 2)]]
-StructuredBuffer<uint32_t> voxel_tree[];
+StructuredBuffer<BranchNode> voxel_tree[];
 
 [[vk::binding(1, 2)]]
-RWStructuredBuffer<uint32_t> far_ptr_arr[];
-
-[[vk::binding(2, 2)]]
 TreeHeader voxel_tree_header;
 
 [[vk::binding(0, 3)]]
@@ -74,21 +71,19 @@ struct RaycastResult {
 };
 
 static const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
-static const float grid_n = 1 << voxel_tree_header.max_depth;
+static const float grid_n = 1 << (voxel_tree_header.max_depth * 2);
 static const float voxel_size = box_size / grid_n;
 
 vector<uint32_t, N> GetTreeIndex<let N : int>(vector<float, N> p) {
-  vector<uint32_t, N> tree_index =
-      vector<uint32_t, N>(floor(((p - voxel_tree_header.min_bound) / box_size) * grid_n)) + 1;
-  tree_index = select(tree_index == grid_n + 1, tree_index - 1, tree_index);
-  return tree_index - 1;
+  const vector<float, N> offset = vector<float, N>(p - voxel_tree_header.min_bound);
+  return vector<uint32_t, N>(floor((offset / box_size) * float(grid_n)));
 }
 
 uint32_t GetLocalIndex(const uint32_t3 index, const uint32_t depth) {
-  return dot(1, ((index >> ((voxel_tree_header.max_depth - 1) - depth)) & 1) << uint32_t3(0, 1, 2));
+  return dot(1, (((index >> ((voxel_tree_header.max_depth - 1) - depth) * 2)) & 0x3) << uint32_t3(0, 2, 4));
 }
 
-const static uint32_t ptr_stack_size = 8;
+const static uint32_t ptr_stack_size = 1;
 const static uint32_t initial_stack_depth = voxel_tree_header.max_depth - ptr_stack_size;
 
 void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint32_t3 index,
@@ -101,12 +96,12 @@ void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint
     const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
     const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-    const uint32_t node =
+    const BranchNode node =
         voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(empty_depth - 1)][page_offset];
 
     const uint32_t local_index = GetLocalIndex(index, empty_depth);
 
-    is_empty = ((node >> (CHILD_MASK_OFFSET + local_index)) & 0x1) == 0;
+    is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
 
     if (empty_depth >= initial_stack_depth) {
       ptr_stack[empty_depth - initial_stack_depth] = ptr;
@@ -115,16 +110,7 @@ void BuildPtrStackFromIndex(inout uint32_t ptr_stack[ptr_stack_size], const uint
     if (is_empty || empty_depth >= voxel_tree_header.max_depth - 1)
       break;
 
-    if ((node & FAR_PTR_BIT) == 0) {
-      ptr = (node & MAX_CHILD_PTR_NO_FAR) + local_index;
-    } else {
-      const uint32_t far_ptr = node & MAX_CHILD_PTR_NO_FAR;
-      const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
-      const uint32_t far_ptr_page_offset =
-          far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
-
-      ptr = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] + local_index;
-    }
+    ptr = node.child_ptr + local_index;
 
     empty_depth++;
   }
@@ -173,7 +159,7 @@ void Raycast(const float3 ray_origin, const float3 ray_dir, out RaycastResult re
     const uint32_t invalid_stack_size = firstbithigh(index_diff.x | index_diff.y | index_diff.z);
 
     uint32_t level;
-    if (invalid_stack_size >= ptr_stack_size) {
+    if (invalid_stack_size >= ptr_stack_size || true) {
       BuildPtrStackFromIndex(ptr_stack_mem[memory_index], current_index, 1, is_empty, level);
     } else {
       BuildPtrStackFromIndex(ptr_stack_mem[memory_index], current_index,
@@ -182,42 +168,14 @@ void Raycast(const float3 ray_origin, const float3 ray_dir, out RaycastResult re
     }
 
     if (!is_empty) {
-      const uint32_t ptr = ptr_stack_mem[memory_index][ptr_stack_size - 1];
-
-      const uint32_t local_index = GetLocalIndex(current_index, voxel_tree_header.max_depth - 1);
-      const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-      const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-      const uint32_t node =
-          voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(voxel_tree_header.max_depth - 2)]
-                    [page_offset];
-
-      uint32_t leaf_ptr;
-      if ((node & FAR_PTR_BIT) == 0) {
-        leaf_ptr = (node & MAX_CHILD_PTR_NO_FAR) + local_index;
-      } else {
-        const uint32_t far_ptr = node & 0x7FFFFF;
-        const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
-        const uint32_t far_ptr_page_offset =
-            far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
-
-        leaf_ptr = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] + local_index;
-      }
-
-      const uint32_t leaf_page_index = leaf_ptr >> voxel_tree_header.page_size_exp;
-      const uint32_t leaf_page_offset = leaf_ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
-      const uint32_t leaf_node =
-          voxel_tree[leaf_page_index + voxel_tree_header.GetLevelPageOffset(voxel_tree_header.max_depth - 1)]
-                    [leaf_page_offset];
-
-      result.hit_color = UnpackRGBA8(leaf_node);
+      result.hit_color = UnpackRGBA8(0xFFFFFFFF);
       break;
     }
 
-    const uint32_t scale = (1 << ((voxel_tree_header.max_depth - 1) - level));
+    const uint32_t scale = (1 << (((voxel_tree_header.max_depth - 1) - level) * 2));
     const float3 voxel_min_bound =
         voxel_tree_header.min_bound +
-        (current_index >> ((voxel_tree_header.max_depth - 1) - level)) * voxel_size * scale;
+        (current_index >> (((voxel_tree_header.max_depth - 1) - level) * 2)) * voxel_size * scale;
 
     const float3 intersect_pos = voxel_min_bound + step(0.0f, ray_dir) * voxel_size * scale;
     const float3 intersect_t = (intersect_pos - position) * inv_ray_dir;
@@ -234,7 +192,7 @@ void Raycast(const float3 ray_origin, const float3 ray_dir, out RaycastResult re
     last_index = current_index;
     current_index = GetTreeIndex(position);
 
-    if (iterations > 100) {
+    if (iterations > 1000) {
       result.error = true;
       return;
     }

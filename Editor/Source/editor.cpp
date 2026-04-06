@@ -7,31 +7,7 @@
 #include "Core/Util/timer.h"
 #include "Core/input.h"
 #include "Core/window.h"
-#include <bitset>
-#include <chrono>
 #include <filesystem>
-
-void PrintNode(const u32 node) {
-  if (node & 0x800000) {
-    Core::Log("child mask: {} far ptr index: {}", std::bitset<8>(node >> 24).to_string(), node & 0x7FFFFF);
-  } else {
-    Core::Log("child mask: {} child offset: {}", std::bitset<8>(node >> 24).to_string(), node & 0x7FFFFF);
-  }
-}
-
-void TraverseNode(const u32 node, u32 &ptr) {
-  if ((node & 0x800000) == 0) {
-    ptr += (node & 0x7FFFFF);
-  } else {
-    const u32 far_ptr = node & 0x7FFFFF;
-    const u32 far_ptr_page_index = far_ptr >> Core::SparseVoxelTree::FAR_PTR_PAGE_SIZE_EXP;
-    const u32 far_ptr_page_offset =
-        far_ptr - (far_ptr_page_index << Core::SparseVoxelTree::FAR_PTR_PAGE_SIZE_EXP);
-
-    ptr += ((u32 *)Core::render_context->voxel_tree.far_ptr_pages[far_ptr_page_index]
-                ->address)[far_ptr_page_offset];
-  }
-}
 
 void Editor::StartUp() {
   SCOPED_TIMER("START UP")
@@ -44,31 +20,25 @@ void Editor::StartUp() {
     Core::render_context->voxel_tree.VoxelizeMesh(mesh_file_data.mesh_data_arr[i]);
   }
 
-  Core::Log("---");
-
-  for (u32 i = 0; i < Core::SparseVoxelTree::MAX_VOXLELIZE_DEPTH; i++) {
-    Core::Log("level {} page offset: {}", i,
-              ((Core::TreeHeader *)Core::render_context->voxel_tree.tree_header_host_buffer.address)
-                  ->level_page_offset[i]);
-  }
-
-  Core::Log("---");
-
-  for (u32 i = 0; i < Core::SparseVoxelTree::MAX_VOXLELIZE_DEPTH; i++) {
-    Core::Log("level {} voxel count: {}", i,
-              ((Core::TreeHeader *)Core::render_context->voxel_tree.tree_header_host_buffer.address)
-                  ->level_voxel_count[i]);
-  }
-
-  Core::Log(
-      "far ptr count {}",
-      ((Core::TreeHeader *)Core::render_context->voxel_tree.tree_header_host_buffer.address)->far_ptr_count);
-
   const Core::DirectionalLight dir_light = {
-      .direction = Normalize(Vec3f32(-0.1f, -1.0f, -0.1f)),
+      .direction = Normalize(Vec3f32(-0.5f, -1.0f, -0.5f)),
       .intesity = 1.0f,
       .color = Vec3f32(1.0f),
   };
+
+  Core::SparseVoxelTree &tree = Core::render_context->voxel_tree;
+
+  Core::SparseVoxelTree::TreeHeader *tree_header =
+      (Core::SparseVoxelTree::TreeHeader *)tree.tree_header_host_buffer.address;
+
+  for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH; i++) {
+    Core::Log("level {} voxel count {}", i, tree_header->level_voxel_count[i]);
+  }
+  for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH; i++) {
+    Core::Log("level {} page offset {}", i, tree_header->level_page_offset[i]);
+  }
+
+  Core::Log("notifications {}", tree_header->notifications);
 
   Core::AddDirectionalLight(dir_light);
 }

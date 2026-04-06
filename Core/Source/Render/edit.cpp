@@ -6,8 +6,6 @@
 
 namespace Core {
 u32 AddDirectionalLight(const DirectionalLight &dir_light) {
-  Assert(All(Normalize(dir_light.direction) == dir_light.direction), "must normalize dir light direction");
-
   VulkanBuffer staging_buffer;
   staging_buffer.Create(sizeof(DirectionalLight), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, /*host=*/true);
   memcpy(staging_buffer.address, &dir_light, sizeof(DirectionalLight));

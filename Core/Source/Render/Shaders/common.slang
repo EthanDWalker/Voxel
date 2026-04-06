@@ -104,36 +104,28 @@ struct BaseTreeHeader<T>
     get { return buffer.Load<uint32_t, 8>(); }
   };
 
-  property uint32_t far_ptr_page_size_exp {
-    get { return buffer.Load<uint32_t, 12>(); }
-  };
-
   property uint32_t page_size_exp {
-    get { return buffer.Load<uint32_t, 16>(); }
+    get { return buffer.Load<uint32_t, 12>(); }
   };
 };
 
 struct RWTreeHeader : BaseTreeHeader<RWByteBuffer> {
-  const uint32_t AllocateFarPtr() {
-    uint32_t val;
-    buffer.data.InterlockedAdd(20, 1, val);
-    return val;
-  }
-
   const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(24 + (level * sizeof(uint32_t)));
+    return buffer.data.Load<uint32_t>(16 + (level * sizeof(uint32_t)));
   }
 
   const uint32_t AllocateVoxels(const uint32_t level, const uint32_t amount) {
     uint32_t val;
-    buffer.data.InterlockedAdd(24 + (max_depth + level) * sizeof(uint32_t), amount, val);
+    buffer.data.InterlockedAdd(16 + (max_depth + level) * sizeof(uint32_t), amount, val);
     return val;
   }
+
+  void Notify(const int64_t v = 1) { buffer.data.InterlockedAddI64(48, v); }
 };
 
 struct TreeHeader : BaseTreeHeader<ByteBuffer> {
   const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(24 + (level * sizeof(uint32_t)));
+    return buffer.data.Load<uint32_t>(16 + (level * sizeof(uint32_t)));
   }
 }
 

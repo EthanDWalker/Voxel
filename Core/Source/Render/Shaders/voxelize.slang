@@ -1,23 +1,26 @@
 import common;
 public module voxelize;
 
-static const uint32_t CHILD_PTR_OFFSET_MASK = 0xFFFFFF;
-static const uint32_t MAX_CHILD_PTR_NO_FAR = 0x7FFFFF;
-static const uint32_t FAR_PTR_BIT = 0x800000;
-static const uint32_t CHILD_MASK_OFFSET = 24;
-static const uint32_t UINT32_MAX = 0xFFFFFFFF;
 static const bool CONSERVATINVE_VOXELIZATION = false;
+static const uint32_t SENTINAL = 0xFFFFFFFF;
+
+struct BranchNode {
+  uint64_t child_mask;
+  uint32_t child_ptr;
+  uint32_t radiance;
+};
+
+struct AtomicBranchNode {
+  Atomic<uint64_t> child_mask;
+  Atomic<uint32_t> child_ptr;
+  Atomic<uint32_t> radiance;
+};
 
 struct RWVoxelizationData {
   private RWByteAddressBuffer buffer;
 
   void DocumentAllocation() { buffer.InterlockedAdd(0, 1); }
-  void DocumentFarPtr() { buffer.InterlockedAdd(4, 1); }
-  uint32_t AllocateNewVoxelPtr() {
-    uint32_t val;
-    buffer.InterlockedAdd(8, 2, val);
-    return val;
-  }
+  void Notify() { buffer.InterlockedAdd(4, 1); }
 };
 
 struct Vertex {
@@ -46,13 +49,10 @@ bool RayBox2dIntersection(const float2 ray_origin, const float2 ray_dir, const f
 }
 
 vector<uint32_t, N> GetTreeIndex<let N : int>(const RWTreeHeader voxel_tree_header, vector<float, N> p) {
-  vector<uint32_t, N> tree_index =
-      vector<uint32_t, N>(floor(
-          ((p - voxel_tree_header.min_bound) / (voxel_tree_header.max_bound - voxel_tree_header.min_bound)) *
-          (1 << voxel_tree_header.max_depth))) +
-      1;
-  tree_index = select(tree_index == (1 << voxel_tree_header.max_depth) + 1, tree_index - 1, tree_index);
-  return tree_index - 1;
+  const uint32_t grid_n = 1 << (voxel_tree_header.max_depth * 2);
+  const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
+  const vector<float, N> offset = vector<float, N>(p - voxel_tree_header.min_bound);
+  return vector<uint32_t, N>(floor((offset / box_size) * float(grid_n)));
 }
 
 float3 GetBarycentric<let N : int>(const vector<float, N> positions[3], const vector<float, N> point) {
@@ -108,7 +108,7 @@ void Voxelize(const Vertex vertices[3], const uint32_t depth, const RWTreeHeader
       -float2(normal[non_projected_axises[0]], normal[non_projected_axises[1]]) / normal[projected_axis];
 
   const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
-  const float grid_n = 1 << voxel_tree_header.max_depth;
+  const float grid_n = 1 << (voxel_tree_header.max_depth * 2);
   const float voxel_size = box_size / grid_n;
 
   const float half_voxel_size = voxel_size * 0.5f;
@@ -166,13 +166,7 @@ void Voxelize(const Vertex vertices[3], const uint32_t depth, const RWTreeHeader
             GetTreeIndex(voxel_tree_header, positions[0][projected_axis] +
                                                 dot(voxel_center - projected_positions[0], plane_slope));
 
-        const uint32_t3 diff = tree_index ^ last_index;
-        const uint32_t invalidated_depth = firstbithigh(diff.x | diff.y | diff.z);
-
-        if (invalidated_depth >= (voxel_tree_header.max_depth - (depth + 1))) {
-          voxelize_fn(tree_index, depth, uv);
-          last_index = tree_index;
-        }
+        voxelize_fn(tree_index, depth, uv);
       }
     }
   }

@@ -91,8 +91,8 @@ void VulkanContext::StartUp() {
   features_12.descriptorBindingStorageBufferUpdateAfterBind = true;
   features_12.descriptorBindingStorageImageUpdateAfterBind = true;
   features_12.shaderFloat16 = true;
-  features_12.shaderInt8 = true;
   features_12.shaderOutputLayer = true;
+  features_12.shaderBufferInt64Atomics = true;
 
   VkPhysicalDeviceVulkan11Features features_11{};
   features_11.storageBuffer16BitAccess = true;

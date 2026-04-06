@@ -13,27 +13,16 @@ SamplerState sampler;
 RWVoxelizationData voxelization_data;
 
 [[vk::binding(0, 1)]]
-RWStructuredBuffer<Atomic<uint32_t>> voxel_tree[];
+RWStructuredBuffer<BranchNode> voxel_tree[];
 
 [[vk::binding(1, 1)]]
-RWStructuredBuffer<uint32_t> far_ptr_arr[];
-
-[[vk::binding(2, 1)]]
 RWTreeHeader voxel_tree_header;
 
-static const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
-static const float grid_n = 1 << voxel_tree_header.max_depth;
-static const float voxel_size = box_size / grid_n;
-
-vector<uint32_t, N> GetTreeIndex<let N : int>(vector<float, N> p) {
-  vector<uint32_t, N> tree_index =
-      vector<uint32_t, N>(floor(((p - voxel_tree_header.min_bound) / box_size) * grid_n)) + 1;
-  tree_index = select(tree_index == grid_n + 1, tree_index - 1, tree_index);
-  return tree_index - 1;
-}
+[[vk::binding(2, 1)]]
+RWStructuredBuffer<uint32_t> voxel_tree_leaf[];
 
 uint32_t GetLocalIndex(const uint32_t3 index, const uint32_t depth) {
-  return dot(1, ((index >> ((voxel_tree_header.max_depth - 1) - depth)) & 1) << uint32_t3(0, 1, 2));
+  return dot(1, (((index >> ((voxel_tree_header.max_depth - 1) - depth) * 2)) & 0x3) << uint32_t3(0, 2, 4));
 }
 
 struct Func : IVoxelizeFn {
@@ -44,33 +33,26 @@ struct Func : IVoxelizeFn {
 
 void AllocateChildMasks(const uint32_t3 index, const uint32_t depth, const float2 uv) {
   uint32_t ptr = GetLocalIndex(index, 0);
+  uint32_t local_index;
 
   for (uint32_t i = 1; i <= depth; i++) {
+    const uint32_t level_page_offset = voxel_tree_header.GetLevelPageOffset(i - 1);
     const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
     const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-    const uint32_t local_index = GetLocalIndex(index, i);
 
-    const uint32_t node =
-        voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(i - 1)][page_offset].or(
-            1 << (local_index + CHILD_MASK_OFFSET));
+    local_index = GetLocalIndex(index, i);
 
-    if ((node & FAR_PTR_BIT) == 0) {
-      ptr = (node & MAX_CHILD_PTR_NO_FAR) + local_index;
-    } else {
-      const uint32_t far_ptr = node & MAX_CHILD_PTR_NO_FAR;
-      const uint32_t far_ptr_page_index = far_ptr >> voxel_tree_header.far_ptr_page_size_exp;
-      const uint32_t far_ptr_page_offset =
-          far_ptr - (far_ptr_page_index << voxel_tree_header.far_ptr_page_size_exp);
+    InterlockedOr(voxel_tree[page_index + level_page_offset][page_offset].child_mask, uint64_t(1)
+                                                                                          << local_index);
 
-      ptr = far_ptr_arr[far_ptr_page_index][far_ptr_page_offset] + local_index;
-    }
+    ptr = voxel_tree[page_index + level_page_offset][page_offset].child_ptr +
+          ((i == depth) ? (local_index / 8) : local_index);
   }
 
-  const uint32_t leaf_page_index = ptr >> voxel_tree_header.page_size_exp;
-  const uint32_t leaf_page_offset = ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
-
-  voxel_tree[leaf_page_index + voxel_tree_header.GetLevelPageOffset(depth)][leaf_page_offset] =
-      PackRGBA8(albedo_texture.SampleLevel(sampler, uv.yx, 0.0f));
+  const uint32_t level_page_offset = voxel_tree_header.GetLevelPageOffset(depth);
+  const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+  const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+  const uint32_t node_offset = local_index & 0x3;
 }
 
 struct PushConstants {
