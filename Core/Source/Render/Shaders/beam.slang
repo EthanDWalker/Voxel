@@ -1,8 +1,6 @@
 import common;
 import voxelize;
 
-[[vk::binding(0, 0)]]
-RWTexture2D<float4> image;
 [[vk::binding(1, 0)]]
 RWTexture2D<float> beam_image;
 
@@ -17,17 +15,6 @@ StructuredBuffer<LeafNode> voxel_tree_leaf[];
 
 [[vk::binding(2, 2)]]
 TreeHeader voxel_tree_header;
-
-[[vk::binding(0, 3)]]
-CountedBuffer<DirectionalLight> directional_light_arr;
-
-struct RaycastResult {
-  float4 hit_color;
-  float3 hit_position;
-  bool hit;
-  bool error;
-  float3 hit_normal;
-};
 
 static const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
 static const float grid_n = 1 << (voxel_tree_header.max_depth * 2);
@@ -44,9 +31,37 @@ uint32_t GetLocalIndex(const uint32_t3 index, const uint32_t depth) {
 
 static const uint32_t initial_ptr_stack_depth = voxel_tree_header.max_depth - PTR_STACK_SIZE;
 
-void Raycast(const float3 ray_origin, const float3 ray_dir, out RaycastResult result) {
-  result.hit = false;
-  result.error = false;
+[numthreads(8, 8, 1)]
+void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
+  uint32_t2 image_size;
+  beam_image.GetDimensions(image_size.x, image_size.y);
+
+  if (all(image_size <= dispatch_id))
+    return;
+
+  const float2 ndc = float2(float(dispatch_id.x) / float(image_size.x) * 2.0f - 1.0f,
+                            float(dispatch_id.y) / float(image_size.y) * -2.0f + 1.0f);
+
+  const float3 ndc_min = float3(ndc, 0.0f);
+  const float3 ndc_max = float3(ndc, 1.0f);
+
+  const float4 view_min =
+      mul(PerspectiveReverseZInverse(camera.z_near, camera.z_near + 1.0f, camera.fov_y, camera.aspect_ratio),
+          float4(ndc_min, 1.0f));
+  const float4 view_max =
+      mul(PerspectiveReverseZInverse(camera.z_near, camera.z_near + 1.0f, camera.fov_y, camera.aspect_ratio),
+          float4(ndc_max, 1.0f));
+
+  const float3 world_min = mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
+                               float4(view_min.xyz / view_min.w, 1.0f))
+                               .xyz;
+  const float3 world_max = mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
+                               float4(view_max.xyz / view_max.w, 1.0f))
+                               .xyz;
+
+  const float3 ray_dir = normalize(world_max - world_min);
+  const float3 ray_origin = camera.position;
+
   float ray_t_min, ray_t_max;
   const bool intersect = RayAABBIntersect(ray_dir, ray_origin, voxel_tree_header.min_bound * (1.0f - 1e-5f),
                                           voxel_tree_header.max_bound * (1.0f - 1e-5f), ray_t_min, ray_t_max);
@@ -111,16 +126,6 @@ void Raycast(const float3 ray_origin, const float3 ray_dir, out RaycastResult re
     }
 
     if (!is_empty) {
-      ptr = node.child_ptr + local_index;
-      const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-      const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-      if (level == voxel_tree_header.max_depth - 1) {
-        result.hit_color = UnpackRGBA8(voxel_tree_leaf[page_index][page_offset].color);
-      } else {
-        result.hit_color = UnpackRGBA8(
-            voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level)][page_offset].radiance);
-      }
       break;
     }
 
@@ -147,9 +152,8 @@ void Raycast(const float3 ray_origin, const float3 ray_dir, out RaycastResult re
     last_index = current_index;
     current_index = GetTreeIndex(position);
 
-    if (iterations > 1000) {
-      result.error = true;
-      return;
+    if (iterations > 100) {
+      break;
     }
     iterations++;
   }
@@ -161,82 +165,5 @@ void Raycast(const float3 ray_origin, const float3 ray_dir, out RaycastResult re
   float voxel_t_min, voxel_t_max;
   RayAABBIntersect(ray_dir, ray_origin, voxel_min_bound, voxel_max_bound, voxel_t_min, voxel_t_max);
 
-  if (is_empty) {
-    result.hit = false;
-    return;
-  }
-  result.hit = true;
-
-  result.hit_position = (ray_origin + ray_dir * voxel_t_min);
-
-  const float3 rel_hit_pos = result.hit_position - (voxel_min_bound + voxel_size / 2.0f);
-  const float3 abs_hit_pos = abs(rel_hit_pos);
-
-  result.hit_normal = abs_hit_pos.x > abs_hit_pos.y && abs_hit_pos.x > abs_hit_pos.z
-                          ? float3(sign(rel_hit_pos.x), 0.0f, 0.0f)
-                          : (abs_hit_pos.y > abs_hit_pos.z ? float3(0.0f, sign(rel_hit_pos.y), 0.0f)
-                                                           : float3(0.0f, 0.0f, sign(rel_hit_pos.z)));
-}
-
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
-  uint32_t2 image_size;
-  image.GetDimensions(image_size.x, image_size.y);
-
-  if (all(image_size <= dispatch_id))
-    return;
-
-  const float2 ndc = float2(float(dispatch_id.x) / float(image_size.x) * 2.0f - 1.0f,
-                            float(dispatch_id.y) / float(image_size.y) * -2.0f + 1.0f);
-
-  const float3 ndc_min = float3(ndc, 0.0f);
-  const float3 ndc_max = float3(ndc, 1.0f);
-
-  const float4 view_min =
-      mul(PerspectiveReverseZInverse(camera.z_near, camera.z_near + 1.0f, camera.fov_y, camera.aspect_ratio),
-          float4(ndc_min, 1.0f));
-  const float4 view_max =
-      mul(PerspectiveReverseZInverse(camera.z_near, camera.z_near + 1.0f, camera.fov_y, camera.aspect_ratio),
-          float4(ndc_max, 1.0f));
-
-  const float3 world_min = mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
-                               float4(view_min.xyz / view_min.w, 1.0f))
-                               .xyz;
-  const float3 world_max = mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
-                               float4(view_max.xyz / view_max.w, 1.0f))
-                               .xyz;
-
-  const float3 ray_dir = normalize(world_max - world_min);
-  const float3 ray_origin = camera.position;
-
-  const uint32_t2 beam_image_location = dispatch_id / BEAM_PREPASS_SCALE;
-
-  float t = beam_image.Load(beam_image_location);
-  t = min(t, beam_image.Load(beam_image_location + int32_t2(-1, -1)));
-  t = min(t, beam_image.Load(beam_image_location + int32_t2(1, -1)));
-  t = min(t, beam_image.Load(beam_image_location + int32_t2(-1, 1)));
-  t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
-
-  RaycastResult res;
-  Raycast(ray_origin + t * ray_dir, ray_dir, res);
-
-  if (res.error) {
-    image.Store(dispatch_id, float4(float3(1.0f, 0.0f, 0.0f), 1.0f));
-    return;
-  }
-
-  if (res.hit) {
-    const float3 L = -directional_light_arr[0].direction + 1e-5f;
-    const float light_impact = max(dot(L, res.hit_normal), 0.3f);
-
-    RaycastResult shadow_res;
-    shadow_res.hit = false;
-    // Raycast(res.hit_position + (2e-3f * L), L, shadow_res);
-    const float shadow = shadow_res.hit ? 0.3f : 1.0f;
-
-    image.Store(dispatch_id, float4(res.hit_color.rgb * light_impact * shadow, 1.0f));
-  } else {
-    image.Store(dispatch_id, float4(float3(0.0f), 1.0f));
-  }
+  beam_image.Store(dispatch_id, voxel_t_min);
 }

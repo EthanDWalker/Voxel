@@ -42,10 +42,40 @@ void Frame(Camera &camera) {
   }
 
   {
+    VulkanSubPass<SubPassType::Compute> beam_pass;
+    beam_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->beam_prepass_image);
+    for (u32 i = 0; i < render_context->voxel_tree.pages.size(); i++) {
+      for (u32 j = 0; j < render_context->voxel_tree.pages[i].size(); j++) {
+        beam_pass.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.pages[i][j]);
+      }
+    }
+    for (u32 i = 0; i < render_context->voxel_tree.leaf_pages.size(); i++) {
+      beam_pass.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.leaf_pages[i]);
+    }
+
+    cmd.BindSubPass(beam_pass);
+    cmd.BindSubPass(render_context->beam_pass);
+
+    cmd.BindPipeline(render_context->beam_prepass_pipeline);
+    cmd.BindDescriptors({render_context->image_descriptor, render_context->camera_descriptor,
+                         render_context->voxel_tree.tree_descriptor});
+    cmd.Dispatch(Vec3u32(render_context->beam_prepass_image.GetVec2u32() / 8 + 1, 1));
+  }
+
+  {
     cmd.BindSubPass(render_context->main_draw_pass);
 
     VulkanSubPass<SubPassType::Compute> main_pass;
     main_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
+    main_pass.AddDependency<DeviceResourceType::StorageImage>(render_context->beam_prepass_image);
+    for (u32 i = 0; i < render_context->voxel_tree.pages.size(); i++) {
+      for (u32 j = 0; j < render_context->voxel_tree.pages[i].size(); j++) {
+        main_pass.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.pages[i][j]);
+      }
+    }
+    for (u32 i = 0; i < render_context->voxel_tree.leaf_pages.size(); i++) {
+      main_pass.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.leaf_pages[i]);
+    }
 
     cmd.BindSubPass(main_pass);
 
@@ -71,5 +101,11 @@ void Resize(Vec2u32 extent) {
   render_context->main_image.Recreate(extent, render_context->main_image.format,
                                       render_context->main_image.usage);
   render_context->image_descriptor.Update<DeviceResourceType::RWStorageImage>(0, &render_context->main_image);
+
+  render_context->beam_prepass_image.Recreate(extent / BEAM_PREPASS_SCALE,
+                                              render_context->beam_prepass_image.format,
+                                              render_context->beam_prepass_image.usage);
+  render_context->image_descriptor.Update<DeviceResourceType::RWStorageImage>(
+      1, &render_context->beam_prepass_image);
 }
 } // namespace Core

@@ -26,6 +26,15 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "main.slang");
     PipelineBuildManager::Build(pipeline_builder, main_pipeline);
   }
+
+  {
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    pipeline_builder.AddDescriptor(image_descriptor);
+    pipeline_builder.AddDescriptor(camera_descriptor);
+    pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
+    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "beam.slang");
+    PipelineBuildManager::Build(pipeline_builder, beam_prepass_pipeline);
+  }
 }
 
 void RenderContext::Create(const Spec &spec) {
@@ -34,6 +43,8 @@ void RenderContext::Create(const Spec &spec) {
 
   main_image.Create(window_size, VK_FORMAT_B8G8R8A8_UNORM,
                     VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+  beam_prepass_image.Create(window_size / BEAM_PREPASS_SCALE, VK_FORMAT_D32_SFLOAT,
+                            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
   swapchain.Create(window_size);
 
@@ -47,6 +58,7 @@ void RenderContext::Create(const Spec &spec) {
   DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &camera_descriptor);
 
   DescriptorBuilder::Bind<DeviceResourceType::RWStorageImage>(&main_image);
+  DescriptorBuilder::Bind<DeviceResourceType::RWStorageImage>(&beam_prepass_image);
   DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &image_descriptor);
 
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&directional_light_buffer);
@@ -60,6 +72,8 @@ void RenderContext::Create(const Spec &spec) {
   upload_pass.AddDependency<DeviceResourceType::TransferDst>(camera_buffer);
 
   main_draw_pass.AddDependency<DeviceResourceType::Buffer>(camera_buffer);
+
+  beam_pass.AddDependency<DeviceResourceType::Buffer>(camera_buffer);
 }
 
 RenderContext::~RenderContext() { WaitIdle(); }

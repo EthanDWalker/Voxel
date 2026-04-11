@@ -31,22 +31,19 @@ void Editor::StartUp() {
   Core::SparseVoxelTree::TreeHeader *tree_header =
       (Core::SparseVoxelTree::TreeHeader *)tree.tree_header_host_buffer.address;
 
-  for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH; i++) {
+  for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH - 1; i++) {
     Core::Log("level {} voxel count {}", i, tree_header->level_voxel_count[i]);
   }
-  for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH; i++) {
+
+  for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH - 1; i++) {
     Core::Log("level {} page offset {}", i, tree_header->level_page_offset[i]);
   }
-
-  Core::Log("notifications {}", tree_header->notifications);
 
   Core::AddDirectionalLight(dir_light);
 }
 
 void Editor::Run() {
   f32 delta_time = 0.0f;
-
-  const u32 sample_size = 100;
 
   f32 frame_test_acc = 0.0f;
   u32 current_samples = 0;
@@ -96,26 +93,22 @@ void Editor::Run() {
     if (Core::InputContext::GetPressed(Core::Input::ESCAPE))
       Core::Window::SetShouldClose(true);
 
-    if (Core::InputContext::GetPressed(Core::Input::V)) {
-      Core::Log("gathering samples...");
-      frame_test_acc = 0.0f;
-      current_samples = 0;
-    }
-
     if (Core::InputContext::GetHeld(Core::Input::F))
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND) / 100.0f;
     else
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
 
-    if (current_samples < sample_size) {
+    if (frame_test_acc < 500.0f) {
       frame_test_acc += timer.ElapsedMillis();
       current_samples++;
-    } else if (current_samples == sample_size) {
-      Core::Log("frame time {} ms", frame_test_acc / float(sample_size));
+    } else {
+      Core::Window::SetTitle(
+          std::format("{:.2f} ms ({:.0f} fps)", timer.ElapsedMillis(), 1.0f / timer.Elapsed()));
       current_samples++;
+      frame_test_acc = 0.0f;
+      current_samples = 0;
     }
 
-    Core::Window::SetTitle(std::format("{} fps", Round(1.0f / timer.Elapsed())));
     delta_time = timer.Elapsed();
   }
 }

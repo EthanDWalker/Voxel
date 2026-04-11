@@ -95,7 +95,7 @@ template <typename Derived, u8 length, typename EntryType> struct vec_base {
     return final;
   }
 
-  constexpr const std::string String() const {
+  const std::string String() const {
     std::string v_string = "{";
     for (u8 i = 0; i < length; i++) {
       v_string += std::to_string((*this)[i]);

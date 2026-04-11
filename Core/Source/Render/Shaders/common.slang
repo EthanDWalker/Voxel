@@ -1,5 +1,8 @@
 public module common;
 
+static const uint32_t PTR_STACK_SIZE = 4;
+static const uint32_t BEAM_PREPASS_SCALE = 4;
+
 struct Camera {
   float4x4 projection;
   float4x4 view;
@@ -16,6 +19,23 @@ struct DirectionalLight {
   float intesity;
   float3 color;
 };
+
+uint16_t PackRGB565(const float3 color) {
+  const uint16_t3 packed = (uint16_t3)round(color * float3(31.0f, 63.0f, 31.0f));
+  return (packed.r << 11) | (packed.g << 5) | packed.b;
+}
+
+float3 UnpackRGB565(const uint16_t packed) {
+  const uint32_t r = (packed >> 11) & 0x1F;
+  const uint32_t g = (packed >> 5) & 0x3F;
+  const uint32_t b = packed & 0x1F;
+
+  const uint32_t r8 = (r << 3) | (r >> 2);
+  const uint32_t g8 = (g << 2) | (g >> 4);
+  const uint32_t b8 = (b << 3) | (b >> 2);
+
+  return float3(r8 / 255.0f, g8 / 255.0f, b8 / 255.0f);
+}
 
 uint32_t PackRGBA8(const float4 data) {
   const float ratio = 255.0f;
@@ -111,21 +131,25 @@ struct BaseTreeHeader<T>
 
 struct RWTreeHeader : BaseTreeHeader<RWByteBuffer> {
   const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(16 + (level * sizeof(uint32_t)));
+    return buffer.data.Load<uint32_t>(20 + (level * sizeof(uint32_t)));
+  }
+
+  const uint32_t AllocateLeafVoxels(const uint32_t amount) {
+    uint32_t val;
+    buffer.data.InterlockedAdd(16, amount, val);
+    return val;
   }
 
   const uint32_t AllocateVoxels(const uint32_t level, const uint32_t amount) {
     uint32_t val;
-    buffer.data.InterlockedAdd(16 + (max_depth + level) * sizeof(uint32_t), amount, val);
+    buffer.data.InterlockedAdd(20 + ((max_depth - 1) + level) * sizeof(uint32_t), amount, val);
     return val;
   }
-
-  void Notify(const int64_t v = 1) { buffer.data.InterlockedAddI64(48, v); }
 };
 
 struct TreeHeader : BaseTreeHeader<ByteBuffer> {
   const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(16 + (level * sizeof(uint32_t)));
+    return buffer.data.Load<uint32_t>(20 + (level * sizeof(uint32_t)));
   }
 }
 
@@ -140,3 +164,49 @@ struct CountedBuffer<T> {
     get { return buffer.Load<T>(sizeof(uint32_t) + sizeof(DirectionalLight) * index); }
   }
 };
+
+bool RayAABBIntersect(const float3 ray_dir, const float3 ray_origin, const float3 bounds_min,
+                      const float3 bounds_max, inout float t_min, inout float t_max) {
+  float t_min_y, t_max_y, t_min_z, t_max_z;
+  const float x_inv_dir = 1 / ray_dir.x;
+  if (x_inv_dir >= 0) {
+    t_min = (bounds_min.x - ray_origin.x) * x_inv_dir;
+    t_max = (bounds_max.x - ray_origin.x) * x_inv_dir;
+  } else {
+    t_min = (bounds_max.x - ray_origin.x) * x_inv_dir;
+    t_max = (bounds_min.x - ray_origin.x) * x_inv_dir;
+  }
+
+  const float y_inv_dir = 1 / ray_dir.y;
+  if (y_inv_dir >= 0) {
+    t_min_y = (bounds_min.y - ray_origin.y) * y_inv_dir;
+    t_max_y = (bounds_max.y - ray_origin.y) * y_inv_dir;
+  } else {
+    t_min_y = (bounds_max.y - ray_origin.y) * y_inv_dir;
+    t_max_y = (bounds_min.y - ray_origin.y) * y_inv_dir;
+  }
+
+  if (t_min > t_max_y || t_min_y > t_max)
+    return false;
+  if (t_min_y > t_min)
+    t_min = t_min_y;
+  if (t_max_y < t_max)
+    t_max = t_max_y;
+
+  const float z_inv_dir = 1 / ray_dir.z;
+  if (z_inv_dir >= 0) {
+    t_min_z = (bounds_min.z - ray_origin.z) * z_inv_dir;
+    t_max_z = (bounds_max.z - ray_origin.z) * z_inv_dir;
+  } else {
+    t_min_z = (bounds_max.z - ray_origin.z) * z_inv_dir;
+    t_max_z = (bounds_min.z - ray_origin.z) * z_inv_dir;
+  }
+
+  if (t_min > t_max_z || t_min_z > t_max)
+    return false;
+  if (t_min_z > t_min)
+    t_min = t_min_z;
+  if (t_max_z < t_max)
+    t_max = t_max_z;
+  return t_max > 0.0f;
+}
