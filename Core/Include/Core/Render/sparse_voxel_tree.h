@@ -24,10 +24,15 @@ struct SparseVoxelTree {
   static const u32 MAX_PAGES = 10000;
   static const u32 MAX_VOXLELIZE_DEPTH = 5;
 
-  struct alignas(GPU_ALIGNMENT) Node {
+  struct alignas(GPU_ALIGNMENT) BranchNode {
     u64 child_mask;
     u32 child_ptr;
+    u32 radiance;
+  };
+
+  struct LeafNode {
     u32 color;
+    u32 radiance;
   };
 
   struct alignas(GPU_ALIGNMENT) TreeHeader {
@@ -52,7 +57,6 @@ struct SparseVoxelTree {
   VulkanBuffer empty_page_host_buffer;
   VulkanPipeline<PipelineType::Compute> allocate_pipeline;
   VulkanPipeline<PipelineType::Compute> allocate_child_mask_pipeline;
-  VulkanPipeline<PipelineType::Compute> calculate_radiance_pipeline;
   VulkanSampler sampler;
 
   SparseVoxelTree();

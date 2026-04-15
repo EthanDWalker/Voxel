@@ -1,23 +1,16 @@
-import common;
-import voxelize;
+#include "Include/common.slang"
+#define VOXEL_TREE_ATOMIC
+#define VOXEL_TREE_READ_WRITE
+#define VOXEL_TREE_SET_BINDING 1
+#include "Include/voxel_tree.slang"
 
 [[vk::binding(1, 0)]]
 StructuredBuffer<Vertex> vertex_arr;
-
-[[vk::binding(0, 1)]]
-RWStructuredBuffer<AtomicBranchNode> voxel_tree[];
-
-[[vk::binding(2, 1)]]
-RWTreeHeader voxel_tree_header;
 
 struct PushConstants {
   uint32_t triangle_count;
   uint32_t depth;
 };
-
-uint32_t GetLocalIndex(const uint32_t3 index, const uint32_t depth) {
-  return dot(1, (((index >> ((voxel_tree_header.max_depth - 1) - depth) * 2)) & 0x3) << uint32_t3(0, 2, 4));
-}
 
 void Allocate(const uint32_t3 index, const uint32_t depth) {
   uint32_t ptr = GetLocalIndex(index, 0);
@@ -115,8 +108,8 @@ void CMain(const uint32_t triangle_id: SV_DispatchThreadID, const uniform PushCo
   const float max_x = max3(projected_positions[0].x, projected_positions[1].x, projected_positions[2].x);
   const float max_y = max3(projected_positions[0].y, projected_positions[1].y, projected_positions[2].y);
 
-  const uint32_t2 min_tree_index = GetTreeIndex(voxel_tree_header, float2(min_x, min_y));
-  const uint32_t2 max_tree_index = GetTreeIndex(voxel_tree_header, float2(max_x, max_y));
+  const uint32_t2 min_tree_index = GetTreeIndex(float2(min_x, min_y));
+  const uint32_t2 max_tree_index = GetTreeIndex(float2(max_x, max_y));
 
   uint32_t3 last_index = 0xFFFFFFFF;
 
@@ -132,9 +125,8 @@ void CMain(const uint32_t triangle_id: SV_DispatchThreadID, const uniform PushCo
         uint32_t3 tree_index;
         tree_index[non_projected_axises[0]] = x;
         tree_index[non_projected_axises[1]] = y;
-        tree_index[projected_axis] =
-            GetTreeIndex(voxel_tree_header, positions[0][projected_axis] +
-                                                dot(voxel_center - projected_positions[0], plane_slope));
+        tree_index[projected_axis] = GetTreeIndex(positions[0][projected_axis] +
+                                                  dot(voxel_center - projected_positions[0], plane_slope));
 
         const uint32_t3 diff = last_index ^ tree_index;
         const uint32_t invalidated_depth = firstbithigh(diff.x | diff.y | diff.z) >> 1;

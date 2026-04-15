@@ -41,6 +41,52 @@ void Frame(Camera &camera) {
     offset += sizeof(Camera::UBO);
   }
 
+  if (render_context->should_recalculate_radiance) {
+    VulkanSubPass<SubPassType::Compute> radiance_pass;
+    radiance_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->beam_prepass_image);
+    for (u32 i = 0; i < render_context->voxel_tree.pages.size(); i++) {
+      for (u32 j = 0; j < render_context->voxel_tree.pages[i].size(); j++) {
+        radiance_pass.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.pages[i][j]);
+      }
+    }
+    for (u32 i = 0; i < render_context->voxel_tree.leaf_pages.size(); i++) {
+      radiance_pass.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.leaf_pages[i]);
+    }
+
+    cmd.BindSubPass(radiance_pass);
+
+    cmd.BindPipeline(render_context->calculate_radiance_pipeline);
+    cmd.BindDescriptors({render_context->voxel_tree.tree_descriptor, render_context->light_descriptor});
+    cmd.Dispatch(Vec3u32((1 << (render_context->voxel_tree.MAX_VOXLELIZE_DEPTH * 2)) / 8 + 1, 1));
+
+    for (i32 i = render_context->voxel_tree.MAX_VOXLELIZE_DEPTH - 2; i >= 0; i--) {
+      VulkanSubPass<SubPassType::Compute> radiance_pass;
+      radiance_pass.AddDependency<DeviceResourceType::Buffer>(render_context->voxel_tree.tree_header_buffer);
+      for (auto &page : render_context->voxel_tree.pages[i]) {
+        radiance_pass.AddDependency<DeviceResourceType::RWBuffer>(*page);
+      }
+      for (auto &page : (i == render_context->voxel_tree.MAX_VOXLELIZE_DEPTH - 2)
+                            ? render_context->voxel_tree.leaf_pages
+                            : render_context->voxel_tree.pages[i + 1]) {
+        radiance_pass.AddDependency<DeviceResourceType::Buffer>(*page);
+      }
+
+      cmd.BindSubPass(radiance_pass);
+
+      cmd.BindPipeline(render_context->mip_map_radiance_pipeline);
+      cmd.BindDescriptors({render_context->voxel_tree.tree_descriptor});
+      cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(u32), &i);
+      cmd.Dispatch(Vec3u32(
+          (((Core::SparseVoxelTree::TreeHeader *)render_context->voxel_tree.tree_header_host_buffer.address)
+               ->level_voxel_count[i] +
+           63) /
+              64,
+          1, 1));
+    }
+
+    render_context->should_recalculate_radiance = false;
+  }
+
   {
     VulkanSubPass<SubPassType::Compute> beam_pass;
     beam_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->beam_prepass_image);

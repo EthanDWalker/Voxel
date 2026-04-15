@@ -1,6 +1,7 @@
 #include "Core/Util/Parse/gltf.h"
 #include "Core/Util/Parse/json.h"
 #include "Core/Util/fail.h"
+#include "Core/Util/thread_pool.h"
 #include "Core/Util/timer.h"
 #include <fstream>
 
@@ -136,7 +137,6 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
         mesh.material.albedo_data =
             stbi_load_from_memory((u8 *)image_data, data_size, (int *)&mesh.material.albedo_extent.x,
                                   (int *)&mesh.material.albedo_extent.y, nullptr, /*req_comp=*/4);
-
         free(image_data);
       }
 

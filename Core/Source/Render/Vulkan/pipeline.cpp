@@ -10,24 +10,21 @@
 #include <vector>
 
 namespace Core {
-std::vector<PipelineBuilder<PipelineType::Graphic>>
-    PipelineBuildManager::graphics_pipeline_builder_arr;
-std::vector<VulkanPipeline<PipelineType::Graphic> *>
-    PipelineBuildManager::graphics_pipeline_ptr_arr;
+std::vector<PipelineBuilder<PipelineType::Graphic>> PipelineBuildManager::graphics_pipeline_builder_arr;
+std::vector<VulkanPipeline<PipelineType::Graphic> *> PipelineBuildManager::graphics_pipeline_ptr_arr;
 
-std::vector<PipelineBuilder<PipelineType::Compute>>
-    PipelineBuildManager::compute_pipeline_builder_arr;
+std::vector<PipelineBuilder<PipelineType::Compute>> PipelineBuildManager::compute_pipeline_builder_arr;
 std::vector<VulkanPipeline<PipelineType::Compute> *> PipelineBuildManager::compute_pipeline_ptr_arr;
 
 enum class SlangTokens : u8 {
   Import,
   EndLine,
+  Include,
+  StringIndicator,
+  Define,
 };
 
-constexpr std::string_view SlangTokenStrings[] = {
-    "import",
-    ";",
-};
+constexpr std::string_view SlangTokenStrings[] = {"import", ";", "#include", "\"", "#define"};
 
 void BaseVulkanPipeline::Destroy() {
   vkDestroyPipeline(VulkanContext::device, obj, nullptr);
@@ -39,16 +36,24 @@ BaseVulkanPipeline::~BaseVulkanPipeline() {
   vkDestroyPipelineLayout(VulkanContext::device, layout, nullptr);
 }
 
-void GetShaderImports(const std::filesystem::path &shader_src,
-                      std::vector<std::filesystem::path> &paths) {
+void GetShaderImports(const std::filesystem::path &shader_src, std::vector<std::filesystem::path> &paths) {
   std::ifstream src_file(shader_src);
 
   std::string token;
   std::getline(src_file, token, ' ');
 
-  while (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Import)]) {
-    std::getline(src_file, token, ';');
-    paths.push_back(shader_src.parent_path() / (token + ".slang"));
+  while (true) {
+    if (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Import)]) {
+      std::getline(src_file, token, ';');
+      paths.push_back(shader_src.parent_path() / (token + ".slang"));
+    } else if (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Include)]) {
+      std::getline(src_file, token, '"');
+      std::getline(src_file, token, '"');
+      paths.push_back(shader_src.parent_path() / (token));
+    } else if (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Define)]) {
+    } else {
+      break;
+    }
     std::getline(src_file, token, '\n');
     std::getline(src_file, token, ' ');
   }
@@ -64,8 +69,7 @@ void LoadShaderModule(const std::filesystem::path &shader_src, VkShaderModule *o
   bool import_updated = false;
   if (std::filesystem::exists(shader_bin)) {
     for (const std::filesystem::path import : import_paths) {
-      Assert(std::filesystem::exists(import), "invalid import found in shader file {}",
-             shader_src.string());
+      Assert(std::filesystem::exists(import), "invalid import/include found in shader file {}", shader_src.string());
       if (std::filesystem::last_write_time(import) > std::filesystem::last_write_time(shader_bin)) {
         import_updated = true;
         break;
@@ -74,8 +78,7 @@ void LoadShaderModule(const std::filesystem::path &shader_src, VkShaderModule *o
   }
 
   if (!std::filesystem::exists(std::filesystem::path(shader_bin)) ||
-      (std::filesystem::last_write_time(shader_src) >
-       std::filesystem::last_write_time(shader_bin)) ||
+      (std::filesystem::last_write_time(shader_src) > std::filesystem::last_write_time(shader_bin)) ||
       import_updated) {
     Log("compiling shader {}", shader_src.string());
     system(std::format("slangc {} -o {} -capability SPIRV_1_6 -target spirv -profile sm_6_6"
@@ -142,12 +145,10 @@ void PipelineBuilder<PipelineType::Compute>::AddDescriptor(const VulkanDescripto
   descriptor_set_layouts.push_back(descriptor.layout);
 }
 
-void PipelineBuilder<PipelineType::Compute>::Build(
-    VulkanPipeline<PipelineType::Compute> &pipeline) {
+void PipelineBuilder<PipelineType::Compute>::Build(VulkanPipeline<PipelineType::Compute> &pipeline) {
   VkShaderModule shader;
 
-  Assert(std::filesystem::exists(shader_src), "compute source ({}) doesnt exist",
-         shader_src.string());
+  Assert(std::filesystem::exists(shader_src), "compute source ({}) doesnt exist", shader_src.string());
 
   LoadShaderModule(shader_src, &shader);
 
@@ -158,8 +159,7 @@ void PipelineBuilder<PipelineType::Compute>::Build(
   pipeline_layout_ci.pSetLayouts = descriptor_set_layouts.data();
   pipeline_layout_ci.setLayoutCount = descriptor_set_layouts.size();
 
-  VK_CHECK(vkCreatePipelineLayout(VulkanContext::device, &pipeline_layout_ci, nullptr,
-                                  &pipeline.layout));
+  VK_CHECK(vkCreatePipelineLayout(VulkanContext::device, &pipeline_layout_ci, nullptr, &pipeline.layout));
 
   VkPipelineShaderStageCreateInfo shader_ci{};
   shader_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -172,8 +172,7 @@ void PipelineBuilder<PipelineType::Compute>::Build(
   info.layout = pipeline.layout;
   info.stage = shader_ci;
 
-  VK_CHECK(vkCreateComputePipelines(VulkanContext::device, VK_NULL_HANDLE, 1, &info, nullptr,
-                                    &pipeline.obj));
+  VK_CHECK(vkCreateComputePipelines(VulkanContext::device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline.obj));
 
   vkDestroyShaderModule(VulkanContext::device, shader, nullptr);
 }
@@ -199,8 +198,7 @@ void PipelineBuilder<PipelineType::Graphic>::SetPolygonMode(VkPolygonMode mode) 
   rasterization.lineWidth = 1.0f;
 }
 
-void PipelineBuilder<PipelineType::Graphic>::SetCullMode(VkCullModeFlags cull_mode,
-                                                         VkFrontFace front_face) {
+void PipelineBuilder<PipelineType::Graphic>::SetCullMode(VkCullModeFlags cull_mode, VkFrontFace front_face) {
   rasterization.cullMode = cull_mode;
   rasterization.frontFace = front_face;
 }
@@ -301,8 +299,7 @@ void PipelineBuilder<PipelineType::Graphic>::SetDepthFormat(VkFormat format) {
   render_info.depthAttachmentFormat = format;
 }
 
-void PipelineBuilder<PipelineType::Graphic>::AddPushConstantRange(VkShaderStageFlags stage_flags,
-                                                                  u32 size) {
+void PipelineBuilder<PipelineType::Graphic>::AddPushConstantRange(VkShaderStageFlags stage_flags, u32 size) {
   VkPushConstantRange range{};
   u32 offset = 0;
   for (auto range : push_constant_ranges) {
@@ -326,8 +323,7 @@ void PipelineBuilder<PipelineType::Graphic>::SetViewportCount(u32 count) {
   viewport_state.scissorCount = count;
 }
 
-void PipelineBuilder<PipelineType::Graphic>::Build(
-    VulkanPipeline<PipelineType::Graphic> &pipeline) {
+void PipelineBuilder<PipelineType::Graphic>::Build(VulkanPipeline<PipelineType::Graphic> &pipeline) {
   Assert(std::filesystem::exists(vert_shader_src_path), "vert source ({}) doesnt exist",
          vert_shader_src_path.string());
   Assert(std::filesystem::exists(frag_shader_src_path), "frag source ({}) doesnt exist",
@@ -353,8 +349,7 @@ void PipelineBuilder<PipelineType::Graphic>::Build(
   pipeline_layout_ci.pSetLayouts = descriptor_set_layouts.data();
   pipeline_layout_ci.setLayoutCount = descriptor_set_layouts.size();
 
-  VK_CHECK(vkCreatePipelineLayout(VulkanContext::device, &pipeline_layout_ci, nullptr,
-                                  &pipeline.layout));
+  VK_CHECK(vkCreatePipelineLayout(VulkanContext::device, &pipeline_layout_ci, nullptr, &pipeline.layout));
 
   VkPipelineColorBlendStateCreateInfo color_blending = {};
   color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;

@@ -21,7 +21,7 @@ void Editor::StartUp() {
   }
 
   const Core::DirectionalLight dir_light = {
-      .direction = Normalize(Vec3f32(-0.5f, -1.0f, -0.5f)),
+      .direction = Normalize(Vec3f32(-0.3f, -1.0f, 0.4f)),
       .intesity = 1.0f,
       .color = Vec3f32(1.0f),
   };
@@ -40,6 +40,8 @@ void Editor::StartUp() {
   }
 
   Core::AddDirectionalLight(dir_light);
+
+  Core::render_context->should_recalculate_radiance = true;
 }
 
 void Editor::Run() {
@@ -102,9 +104,9 @@ void Editor::Run() {
       frame_test_acc += timer.ElapsedMillis();
       current_samples++;
     } else {
+      const f32 ms_per_frame = frame_test_acc / f32(current_samples);
       Core::Window::SetTitle(
-          std::format("{:.2f} ms ({:.0f} fps)", timer.ElapsedMillis(), 1.0f / timer.Elapsed()));
-      current_samples++;
+          std::format("{:.2f} ms ({:.0f} fps)", ms_per_frame, 1.0f / (ms_per_frame / 1000.0f)));
       frame_test_acc = 0.0f;
       current_samples = 0;
     }
