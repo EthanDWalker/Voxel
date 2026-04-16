@@ -7,6 +7,7 @@ namespace Core {
 
 enum class ImageType : u8 {
   Planar,
+  Volume,
   CubeMap,
 };
 
@@ -38,14 +39,14 @@ struct BaseVulkanImage {
 template <ImageType T> struct VulkanImage;
 
 template <> struct VulkanImage<ImageType::Planar> : BaseVulkanImage {
-  void Recreate(Vec2u32 extent, VkFormat format, VkImageUsageFlags usage_flags,
-                bool mipmapped = false);
+  void Recreate(Vec2u32 extent, VkFormat format, VkImageUsageFlags usage_flags, bool mipmapped = false);
 
-  void Create(Vec2u32 extent, VkFormat format, VkImageUsageFlags usage_flags,
-              bool mipmapped = false);
+  void Create(Vec2u32 extent, VkFormat format, VkImageUsageFlags usage_flags, bool mipmapped = false);
 
   ~VulkanImage<ImageType::Planar>();
 };
+
+template <> struct VulkanImage<ImageType::Volume> : BaseVulkanImage {};
 
 template <> struct VulkanImage<ImageType::CubeMap> : BaseVulkanImage {
   // ordered according to vulkan spec
@@ -61,11 +62,9 @@ template <> struct VulkanImage<ImageType::CubeMap> : BaseVulkanImage {
 
   VkImageView face_views[static_cast<u8>(CubeFace::Count)] = {VK_NULL_HANDLE};
 
-  void Recreate(u32 side_length, VkFormat format, VkImageUsageFlags usage_flags,
-                bool mipmapped = false);
+  void Recreate(u32 side_length, VkFormat format, VkImageUsageFlags usage_flags, bool mipmapped = false);
 
-  void Create(u32 side_length, VkFormat format, VkImageUsageFlags usage_flags,
-              bool mipmapped = false);
+  void Create(u32 side_length, VkFormat format, VkImageUsageFlags usage_flags, bool mipmapped = false);
 
   ~VulkanImage<ImageType::CubeMap>();
 };

@@ -11,16 +11,22 @@ std::vector<VkDescriptorSetLayoutBinding> DescriptorBuilder::Bindings;
 std::vector<void *> DescriptorBuilder::Writes;
 
 VulkanDescriptor::~VulkanDescriptor() {
+  ZoneScoped;
   vkDestroyDescriptorSetLayout(VulkanContext::device, layout, nullptr);
 }
 
 void VulkanDescriptor::UpdateFromWrite(const VkWriteDescriptorSet &info) {
+  ZoneScoped;
   vkUpdateDescriptorSets(VulkanContext::device, 1, &info, 0, nullptr);
 }
 
-void DescriptorBuilder::StartUp() { Pool.StartUp(); }
+void DescriptorBuilder::StartUp() {
+  ZoneScoped;
+  Pool.StartUp();
+}
 
 void DescriptorBuilder::ShutDown() {
+  ZoneScoped;
   Pool.Destroy();
   for (auto *write : Writes) {
     free(write);
@@ -28,6 +34,7 @@ void DescriptorBuilder::ShutDown() {
 }
 
 void DescriptorBuilder::Reset() {
+  ZoneScoped;
   Bindings.clear();
   for (auto *write : Writes) {
     free(write);
@@ -36,6 +43,7 @@ void DescriptorBuilder::Reset() {
 }
 
 void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *descriptor) {
+  ZoneScoped;
   if (descriptor->layout != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(VulkanContext::device, descriptor->layout, nullptr);
     descriptor->layout = VK_NULL_HANDLE;
@@ -108,9 +116,13 @@ void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *
   Reset();
 }
 
-void VulkanDescriptorPool::StartUp() { NewPool(); }
+void VulkanDescriptorPool::StartUp() {
+  ZoneScoped;
+  NewPool();
+}
 
 void VulkanDescriptorPool::NewPool() {
+  ZoneScoped;
   std::array<VkDescriptorPoolSize, POOL_RATIOS.size()> pool_sizes{};
 
   for (u32 i = 0; i < POOL_RATIOS.size(); i++) {
@@ -134,6 +146,7 @@ void VulkanDescriptorPool::NewPool() {
 }
 
 void VulkanDescriptorPool::Allocate(VulkanDescriptor *descriptor, void *pNext) {
+  ZoneScoped;
   VkDescriptorSetAllocateInfo ds_alloc_info{};
   ds_alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   ds_alloc_info.descriptorPool = current_pool;
@@ -162,6 +175,7 @@ void VulkanDescriptorPool::Allocate(VulkanDescriptor *descriptor, void *pNext) {
 }
 
 void VulkanDescriptorPool::Destroy() {
+  ZoneScoped;
   for (VkDescriptorPool pool : used_pools) {
     vkDestroyDescriptorPool(VulkanContext::device, pool, nullptr);
   }

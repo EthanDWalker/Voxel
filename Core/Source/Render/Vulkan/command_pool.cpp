@@ -4,19 +4,25 @@
 
 namespace Core {
 VulkanCommandPool::~VulkanCommandPool() {
+  ZoneScoped;
   vkDestroyCommandPool(VulkanContext::device, obj, nullptr);
 }
 
 void VulkanCommandPool::Create(u32 queue_index) {
+  ZoneScoped;
   VkCommandPoolCreateInfo command_pool_ci{};
   command_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   command_pool_ci.queueFamilyIndex = queue_index;
   vkCreateCommandPool(VulkanContext::device, &command_pool_ci, nullptr, &obj);
 }
 
-void VulkanCommandPool::Reset() { VK_CHECK(vkResetCommandPool(VulkanContext::device, obj, 0)); }
+void VulkanCommandPool::Reset() {
+  ZoneScoped;
+  VK_CHECK(vkResetCommandPool(VulkanContext::device, obj, 0));
+}
 
 VkCommandBuffer VulkanCommandPool::AllocateCommandBuffer(VkCommandBufferLevel buffer_level) {
+  ZoneScoped;
   VkCommandBuffer cmd;
   VkCommandBufferAllocateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;

@@ -2,14 +2,17 @@
 
 namespace Core {
 void Camera::Create(const Vec2u32 extent) {
+  ZoneScoped;
   aspect_ratio = extent.width / static_cast<f32>(extent.height);
 }
 
 void Camera::Resize(const Vec2u32 extent) {
+  ZoneScoped;
   aspect_ratio = extent.width / static_cast<f32>(extent.height);
 }
 
 void Camera::Update() {
+  ZoneScoped;
   const Vec3f32 direction{
       std::cos(Radians(yaw)) * std::cos(Radians(pitch)),
       std::sin(Radians(pitch)),

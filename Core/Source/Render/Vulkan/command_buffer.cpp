@@ -7,23 +7,32 @@
 
 namespace Core {
 void VulkanCommandBuffer::Begin() {
+  ZoneScoped;
   VkCommandBufferBeginInfo cmd_begin = CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
   VK_CHECK(vkBeginCommandBuffer(obj, &cmd_begin));
 }
 
-void VulkanCommandBuffer::End() { VK_CHECK(vkEndCommandBuffer(obj)); }
+void VulkanCommandBuffer::End() {
+  ZoneScoped;
+  VK_CHECK(vkEndCommandBuffer(obj));
+}
 
 void VulkanCommandBuffer::PushConstants(VkShaderStageFlagBits stages, u32 size, const void *data) {
+  ZoneScoped;
   Assert(bound_pipeline_layout, "Must bind pipeline before pushing constants");
   vkCmdPushConstants(obj, *bound_pipeline_layout, stages, push_constant_offset, size, data);
   push_constant_offset += size;
 }
 
-void VulkanCommandBuffer::Dispatch(Vec3u32 groups) { vkCmdDispatch(obj, groups.x, groups.y, groups.z); }
+void VulkanCommandBuffer::Dispatch(Vec3u32 groups) {
+  ZoneScoped;
+  vkCmdDispatch(obj, groups.x, groups.y, groups.z);
+}
 
 void VulkanCommandBuffer::CopyImageToImage(const BaseVulkanImage &src_image,
                                            const BaseVulkanImage &dst_image) {
+  ZoneScoped;
   VkImageCopy2 copy{};
   copy.sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2;
   copy.extent = Vec3u32::To<VkExtent3D>(src_image.GetVec3u32());
@@ -52,11 +61,13 @@ void VulkanCommandBuffer::CopyImageToImage(const BaseVulkanImage &src_image,
 
 void VulkanCommandBuffer::FillBuffer(const VulkanBuffer &buffer, const u64 fill_size, const u32 data,
                                      const u32 offset) {
+  ZoneScoped;
   vkCmdFillBuffer(obj, buffer.obj, offset, fill_size, data);
 }
 
 void VulkanCommandBuffer::UploadBufferToBuffer(const VulkanBuffer &src_buffer, const VulkanBuffer &dst_buffer,
                                                const u64 size, const u64 src_offset, const u64 dst_offset) {
+  ZoneScoped;
   Assert((dst_buffer.usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) != 0 &&
              (VK_BUFFER_USAGE_TRANSFER_SRC_BIT & src_buffer.usage) != 0,
          "When trying to upload buffer to buffer proper bits arent set");
@@ -69,12 +80,14 @@ void VulkanCommandBuffer::UploadBufferToBuffer(const VulkanBuffer &src_buffer, c
 }
 
 void VulkanCommandBuffer::DrawIndirect(const VulkanIndirectDrawCommand &command) {
+  ZoneScoped;
   vkCmdDrawIndexedIndirectCount(obj, command.draw_buffer.obj, 0, command.draw_count_buffer.obj, 0,
                                 command.max_draw_count, sizeof(VkDrawIndexedIndirectCommand));
 }
 
 void VulkanCommandBuffer::UploadBufferToImage(const VulkanBuffer &buffer, const BaseVulkanImage &image,
                                               const u32 src_offset, const u32 mip_level) {
+  ZoneScoped;
   VkBufferImageCopy copy_region{};
   copy_region.bufferOffset = src_offset;
   copy_region.bufferRowLength = 0;
@@ -91,6 +104,7 @@ void VulkanCommandBuffer::UploadBufferToImage(const VulkanBuffer &buffer, const 
 
 void VulkanCommandBuffer::Blit(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image,
                                const u32 src_mip_level, const u32 dst_mip_level) {
+  ZoneScoped;
   VkImageMemoryBarrier2 barriers[2] = {};
 
   VkImageMemoryBarrier2 &src_barrier = barriers[0];
@@ -167,6 +181,7 @@ void VulkanCommandBuffer::BeginRendering(const std::vector<BaseVulkanImage *> &a
                                          BaseVulkanImage *depth_image, Vec2u32 extent,
                                          VkAttachmentLoadOp depth_load_op,
                                          VkAttachmentStoreOp depth_store_op) {
+  ZoneScoped;
   VkViewport viewport = Viewport({extent.width, extent.height, 1});
   vkCmdSetViewport(obj, 0, 1, &viewport);
   VkRect2D scissor = Scissor({extent.width, extent.height, 1});
@@ -206,6 +221,7 @@ void VulkanCommandBuffer::BeginMultiRendering(const u32 viewport_count, const u3
                                               BaseVulkanImage *depth_image, Vec2u32 extent,
                                               VkAttachmentLoadOp depth_load_op,
                                               VkAttachmentStoreOp depth_store_op) {
+  ZoneScoped;
   std::vector<VkViewport> viewports(viewport_count);
   std::vector<VkRect2D> scissors(viewport_count);
   for (u32 i = 0; i < viewport_count; i++) {
@@ -246,27 +262,32 @@ void VulkanCommandBuffer::BeginMultiRendering(const u32 viewport_count, const u3
 }
 
 void VulkanCommandBuffer::EndRendering() {
+  ZoneScoped;
   vkCmdEndRendering(obj);
   bound_pipeline_layout = nullptr;
 }
 
 void VulkanCommandBuffer::BindIndexBuffer(const VulkanBuffer &index_buffer) {
+  ZoneScoped;
   Assert((index_buffer.usage & VK_BUFFER_USAGE_INDEX_BUFFER_BIT) != 0, "Must bind an index buffer");
   vkCmdBindIndexBuffer(obj, index_buffer.obj, 0, VK_INDEX_TYPE_UINT32);
 }
 
 void VulkanCommandBuffer::BindDescriptors(const std::vector<VkDescriptorSet> &descriptors) {
+  ZoneScoped;
   Assert(bound_pipeline_layout, "You must bind a pipeline to bind descriptor");
   vkCmdBindDescriptorSets(obj, bind_point, *bound_pipeline_layout, 0, descriptors.size(), descriptors.data(),
                           0, nullptr);
 }
 
 void VulkanCommandBuffer::Draw(u32 vertex_count, u32 instance_count, u32 vertex_offset, u32 instance_offset) {
+  ZoneScoped;
   vkCmdDraw(obj, vertex_count, instance_count, vertex_offset, instance_offset);
 }
 
 void VulkanCommandBuffer::DrawIndexed(u32 index_count, u32 instance_count, u32 first_index, i32 vertex_offset,
                                       u32 first_instance) {
+  ZoneScoped;
   vkCmdDrawIndexed(obj, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 } // namespace Core

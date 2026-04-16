@@ -40,8 +40,6 @@ void Editor::StartUp() {
   }
 
   Core::AddDirectionalLight(dir_light);
-
-  Core::render_context->should_recalculate_radiance = true;
 }
 
 void Editor::Run() {
@@ -52,8 +50,9 @@ void Editor::Run() {
 
   while (!Core::Window::ShouldClose()) {
     Core::Timer timer{};
-    Core::InputContext::Update();
     bool resize = false;
+    Core::BeginFrame(resize);
+    Core::InputContext::Update();
 
     {
       if (Core::InputContext::GetHeld(Core::Input::MOUSE_RIGHT)) {
@@ -77,8 +76,6 @@ void Editor::Run() {
       if (Core::InputContext::GetHeld(Core::Input::Q))
         camera.position -= delta_time * camera.up;
     }
-
-    Core::VulkanCommandBuffer &cmd = Core::BeginFrame(resize);
 
     Core::Frame(camera);
 

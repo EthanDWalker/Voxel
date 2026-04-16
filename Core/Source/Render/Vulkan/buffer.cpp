@@ -7,10 +7,11 @@
 
 namespace Core {
 
-VulkanBuffer::~VulkanBuffer() { vmaDestroyBuffer(VulkanContext::allocator, obj, allocation); }
-void VulkanBuffer::Destroy() { vmaDestroyBuffer(VulkanContext::allocator, obj, allocation); }
+VulkanBuffer::~VulkanBuffer() { ZoneScoped;vmaDestroyBuffer(VulkanContext::allocator, obj, allocation); }
+void VulkanBuffer::Destroy() { ZoneScoped;vmaDestroyBuffer(VulkanContext::allocator, obj, allocation); }
 
 void VulkanBuffer::Create(u64 size, VkBufferUsageFlags usage, bool host) {
+  ZoneScoped;
   this->usage = usage;
   this->size = size;
 

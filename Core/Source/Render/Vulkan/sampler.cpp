@@ -5,6 +5,7 @@
 namespace Core {
 
 VkFilter ToVkFilter(const SamplerFilter filter) {
+  ZoneScoped;
   switch (filter) {
   case SamplerFilter::Linear: {
     return VK_FILTER_LINEAR;
@@ -19,6 +20,7 @@ VkFilter ToVkFilter(const SamplerFilter filter) {
 }
 
 VkSamplerMipmapMode ToVkSamplerMipMapMode(const SamplerFilter filter) {
+  ZoneScoped;
   switch (filter) {
   case SamplerFilter::Linear: {
     return VK_SAMPLER_MIPMAP_MODE_LINEAR;
@@ -33,6 +35,7 @@ VkSamplerMipmapMode ToVkSamplerMipMapMode(const SamplerFilter filter) {
 }
 
 void VulkanSampler::Create(const SamplerFilter filter, const SamplerFilter mip_filter, const f32 lod_bias) {
+  ZoneScoped;
   VkSamplerCreateInfo sampler_ci{};
   sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
   sampler_ci.minFilter = ToVkFilter(filter);

@@ -15,6 +15,7 @@ enum JsonToken : char {
 };
 
 void JsonArray::Free() {
+  ZoneScoped;
   for (u32 i = 0; i < value_count; i++) {
     if (value_type_arr[i] == JsonValueType::Array) {
       value_arr[i].array->Free();
@@ -29,6 +30,7 @@ void JsonArray::Free() {
 }
 
 void JsonObject::Free() {
+  ZoneScoped;
   for (u32 i = 0; i < arr_count; i++) {
     free((void *)name_arr[i]);
     arr_arr[i].Free();
@@ -37,6 +39,7 @@ void JsonObject::Free() {
 }
 
 const std::optional<JsonArray> JsonObject::Find(const char *name) const {
+  ZoneScoped;
   for (u32 i = 0; i < arr_count; i++) {
     if (strcmp(name, name_arr[i]) == 0) {
       return arr_arr[i];
@@ -47,6 +50,7 @@ const std::optional<JsonArray> JsonObject::Find(const char *name) const {
 }
 
 u32 JsonObject::PushBack() {
+  ZoneScoped;
   arr_count++;
   name_arr = (char **)realloc(name_arr, sizeof(char *) * arr_count);
   arr_arr = (JsonArray *)realloc(arr_arr, sizeof(JsonArray) * arr_count);
@@ -55,6 +59,7 @@ u32 JsonObject::PushBack() {
 }
 
 u32 JsonArray::PushBack(const u32 append_count) {
+  ZoneScoped;
   value_count += append_count;
   value_type_arr = (JsonValueType *)realloc(value_type_arr, sizeof(JsonValueType) * value_count);
   value_arr = (JsonValueUnion *)realloc(value_arr, sizeof(void *) * value_count);
@@ -62,6 +67,7 @@ u32 JsonArray::PushBack(const u32 append_count) {
 }
 
 void ParseJsonString(u64 &cursor, const char *file_data, char **string) {
+  ZoneScoped;
   static char string_buff[1000];
 
   u32 size = 0;
@@ -78,19 +84,22 @@ void ParseJsonString(u64 &cursor, const char *file_data, char **string) {
   (*string)[size] = '\0';
 }
 
-constexpr const u8 CharToNumber(const char c) {
+const u8 CharToNumber(const char c) {
+  ZoneScoped;
   // '0' = 48
   // '9' = 57
   return (u8)c - 48;
 }
 
-constexpr const bool IsNumber(const char c) {
+const bool IsNumber(const char c) {
+  ZoneScoped;
   // '0' = 48
   // '9' = 57
   return c >= 48 && c <= 57;
 }
 
 JsonValueType ParseJsonValue(u64 &cursor, const char *file_data, JsonValueUnion *data) {
+  ZoneScoped;
   switch (file_data[cursor]) {
   case JsonToken::StringIndicator: {
     ParseJsonString(cursor, file_data, (char **)data);
@@ -144,6 +153,7 @@ JsonValueType ParseJsonValue(u64 &cursor, const char *file_data, JsonValueUnion 
 JsonObject *ParseJsonObjectFromCursor(u64 &cursor, const char *file_data);
 
 void ParseJsonArray(u64 &cursor, const char *file_data, JsonArray *array) {
+  ZoneScoped;
   while (true) {
     if (file_data[cursor] == JsonToken::NegativeSign || IsNumber(file_data[cursor])) {
       const u32 index = array->PushBack();
@@ -175,6 +185,7 @@ void ParseJsonArray(u64 &cursor, const char *file_data, JsonArray *array) {
 }
 
 JsonObject *ParseJsonObjectFromCursor(u64 &cursor, const char *file_data) {
+  ZoneScoped;
   static char string_buff[100];
   JsonObject *current_object = (JsonObject *)malloc(sizeof(JsonObject));
   memset(current_object, 0, sizeof(JsonObject));
@@ -235,6 +246,7 @@ JsonObject *ParseJsonObjectFromCursor(u64 &cursor, const char *file_data) {
 }
 
 JsonObject ParseJsonStream(std::ifstream &file, const u64 file_size) {
+  ZoneScoped;
   Assert(file.is_open(), "Must open file before parsing JSON");
 
   const char *file_data = (const char *)malloc(file_size);
@@ -246,6 +258,7 @@ JsonObject ParseJsonStream(std::ifstream &file, const u64 file_size) {
 }
 
 void PrintJsonGraph(const JsonObject &object, const std::string &indentation) {
+  ZoneScoped;
   for (u32 i = 0; i < object.arr_count; i++) {
     Core::Log("{} - {}", indentation, object.name_arr[i]);
     for (u32 j = 0; j < object.arr_arr[i].value_count; j++) {

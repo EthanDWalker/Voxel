@@ -6,6 +6,7 @@
 
 namespace Core {
 void StartUp() {
+  ZoneScoped;
   glfwInit();
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
@@ -22,6 +23,7 @@ void StartUp() {
 }
 
 void ShutDown() {
+  ZoneScoped;
   VulkanContext::ShutDown();
 
   ThreadPool::ShutDown();

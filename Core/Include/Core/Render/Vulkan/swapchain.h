@@ -30,7 +30,7 @@ struct VulkanSwapchain {
   void Resize(Vec2u32 extent);
 
   void AcquireNextImage(bool &resize);
-  VulkanCommandBuffer &BeginCommandBuffer();
+  void BeginCommandBuffer();
   VulkanCommandBuffer &GetActiveCommandBuffer();
   void SubmitCommandBuffer();
   void Present(bool &resize);

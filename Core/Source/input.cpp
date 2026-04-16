@@ -13,9 +13,13 @@ Vec2u32 InputContext::window_size;
 Vec2f32 InputContext::mouse_pos;
 Vec2f32 InputContext::delta_mouse_pos;
 
-void InputContext::StartUp() { Update(); };
+void InputContext::StartUp() {
+  ZoneScoped;
+  Update();
+};
 
 void InputContext::Update() {
+  ZoneScoped;
   glfwPollEvents();
 
   GLFWwindow *window = (GLFWwindow *)Window::handle;

@@ -25,8 +25,6 @@ struct RenderContext {
 
   VulkanPipeline<PipelineType::Compute> main_pipeline;
   VulkanPipeline<PipelineType::Compute> beam_prepass_pipeline;
-  VulkanPipeline<PipelineType::Compute> mip_map_radiance_pipeline;
-  VulkanPipeline<PipelineType::Compute> calculate_radiance_pipeline;
 
   VulkanDescriptor image_descriptor;
   VulkanDescriptor camera_descriptor;
@@ -41,8 +39,6 @@ struct RenderContext {
   VulkanSubPass<SubPassType::Compute> beam_pass;
   VulkanSubPass<SubPassType::Compute> main_draw_pass;
   VulkanSubPass<SubPassType::Transfer> upload_pass;
-
-  bool should_recalculate_radiance;
 
   void Create(const Spec &spec);
   void CreatePipelines();

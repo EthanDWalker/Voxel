@@ -29,9 +29,10 @@ static thread_local VkCommandPool command_pool;
 static thread_local VkCommandBuffer command_buffer;
 static thread_local VkFence fence;
 
-inline VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type,
-    const VkDebugUtilsMessengerCallbackDataEXT *data, void *) {
+inline VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                                          VkDebugUtilsMessageTypeFlagsEXT type,
+                                                          const VkDebugUtilsMessengerCallbackDataEXT *data,
+                                                          void *) {
   auto ms = vkb::to_string_message_severity(severity);
   auto mt = vkb::to_string_message_type(type);
   if (type & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
@@ -46,6 +47,7 @@ inline VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(
 }
 
 void VulkanContext::StartUp() {
+  ZoneScoped;
   volkInitialize();
   vkb::InstanceBuilder instance_builder;
 
@@ -70,6 +72,9 @@ void VulkanContext::StartUp() {
   features.fillModeNonSolid = true;
   features.shaderInt64 = true;
   features.shaderInt16 = true;
+  features.fragmentStoresAndAtomics = true;
+  features.vertexPipelineStoresAndAtomics = true;
+  features.geometryShader = true;
 
   VkPhysicalDeviceVulkan13Features features_13{};
   features_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
@@ -113,6 +118,7 @@ void VulkanContext::StartUp() {
           .set_surface(surface)
           .add_required_extension(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME)
           .add_required_extension_features(robustness_2)
+          .add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
           .add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
           .select()
           .value();
@@ -175,6 +181,7 @@ void VulkanContext::StartUp() {
 }
 
 void VulkanContext::Submit(const std::function<void(VulkanCommandBuffer &cmd)> &&function) {
+  ZoneScoped;
   VK_CHECK(vkResetFences(device, 1, &fence));
   VK_CHECK(vkResetCommandPool(device, command_pool, 0));
 
@@ -196,6 +203,7 @@ void VulkanContext::Submit(const std::function<void(VulkanCommandBuffer &cmd)> &
 }
 
 void VulkanContext::ShutDown() {
+  ZoneScoped;
   vkDeviceWaitIdle(device);
 
   DescriptorBuilder::ShutDown();

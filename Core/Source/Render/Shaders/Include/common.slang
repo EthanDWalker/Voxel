@@ -3,6 +3,12 @@
 static const uint32_t PTR_STACK_SIZE = 4;
 static const uint32_t BEAM_PREPASS_SCALE = 4;
 
+enum Axis {
+  X,
+  Y,
+  Z,
+};
+
 struct DirectionalLight {
   float3 direction;
   float intesity;

@@ -9,19 +9,14 @@
 #include <memory>
 
 namespace Core {
-struct VoxelizePushConstants {
-  u32 count;
-  u32 depth;
-};
-
-const u32 INDEX_BUFFER_BINDING = 0;
-const u32 VERTEX_BUFFER_BINDING = 1;
-const u32 ALBEDO_IMAGE_BINDING = 2;
+const u32 VERTEX_BUFFER_BINDING = 0;
+const u32 ALBEDO_IMAGE_BINDING = 1;
 
 const u32 TREE_BUFFER_BINDING = 0;
 const u32 TREE_LEAF_BUFFER_BINDING = 1;
 
 SparseVoxelTree::SparseVoxelTree() {
+  ZoneScoped;
   constexpr bool host = true;
 
   sampler.Create(SamplerFilter::Linear, SamplerFilter::Linear);
@@ -39,16 +34,15 @@ SparseVoxelTree::SparseVoxelTree() {
         .child_mask = 0, .child_ptr = SENTINAL, .radiance = 0};
   }
 
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>();          // index buffer (not in use atm)
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>();          // vertex buffer
   DescriptorBuilder::Bind<DeviceResourceType::SampledImage>();    // albedo image
   DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&sampler); // sampler
-  DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &voxelize_descriptor);
+  DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS, &voxelize_descriptor);
 
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // voxel tree
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // voxel tree leafs
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&tree_header_buffer);
-  DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &tree_descriptor);
+  DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS, &tree_descriptor);
 
   TreeHeader header{};
   header._min_bound = MIN_BOUND;
@@ -106,103 +100,59 @@ SparseVoxelTree::SparseVoxelTree() {
   });
 
   {
-    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Graphic>();
+    pipeline_builder.Default();
+    pipeline_builder.SetNoDepthTest();
+    pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
     pipeline_builder.AddDescriptor(voxelize_descriptor);
     pipeline_builder.AddDescriptor(tree_descriptor);
-    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "allocate.slang");
-    pipeline_builder.AddPushConstantRange(sizeof(VoxelizePushConstants));
+    pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(u32));
+    pipeline_builder.EnableConservativeRasterization();
+    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "allocate.slang",
+                                std::filesystem::path(SHADER_DIR) / "allocate.slang",
+                                std::filesystem::path(SHADER_DIR) / "allocate.slang");
     PipelineBuildManager::Build(pipeline_builder, allocate_pipeline);
   }
 
   {
-    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Graphic>();
+    pipeline_builder.Default();
+    pipeline_builder.SetNoDepthTest();
+    pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
     pipeline_builder.AddDescriptor(voxelize_descriptor);
     pipeline_builder.AddDescriptor(tree_descriptor);
-    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "allocate_child_mask.slang");
-    pipeline_builder.AddPushConstantRange(sizeof(VoxelizePushConstants));
+    pipeline_builder.EnableConservativeRasterization();
+    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "allocate_child_mask.slang",
+                                std::filesystem::path(SHADER_DIR) / "allocate_child_mask.slang",
+                                std::filesystem::path(SHADER_DIR) / "allocate_child_mask.slang");
     PipelineBuildManager::Build(pipeline_builder, allocate_child_mask_pipeline);
   }
-
-}
-
-void SubdivideTriangle(const f32 side_length_threashold, const std::array<Vertex, 3> triangle,
-                       std::vector<Vertex> &vertices) {
-  const f32 side_length_threashold_2 = side_length_threashold * side_length_threashold;
-
-  // see if we can subdivide further
-  for (u32 i = 0; i < 3; i++) {
-    const Vec3f32 edge = triangle[(i + 1) % 3].position - triangle[i].position;
-    const f32 edge_length_2 = Dot(edge, edge);
-
-    if (edge_length_2 >= side_length_threashold_2) {
-      const Vertex midpoint = {.position = edge * 0.5f + triangle[i].position,
-                               .uv = (triangle[(i + 1) % 3].uv + triangle[i].uv) * 0.5f};
-
-      SubdivideTriangle(side_length_threashold,
-                        {
-                            triangle[i],
-                            midpoint,
-                            triangle[(i + 2) % 3],
-                        },
-                        vertices);
-
-      SubdivideTriangle(side_length_threashold,
-                        {
-                            midpoint,
-                            triangle[(i + 1) % 3],
-                            triangle[(i + 2) % 3],
-                        },
-                        vertices);
-
-      return;
-    }
-  }
-
-  // if we cant subdivide further, add to arrays
-
-  const u32 init_index = vertices.size();
-
-  vertices.push_back(triangle[0]);
-  vertices.push_back(triangle[1]);
-  vertices.push_back(triangle[2]);
 }
 
 void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
-  // first, if some triangles are very large we split them into smaller ones
-  const f32 split_threashold = 700.0f;
-
+  ZoneScoped;
   TreeHeader *header = (TreeHeader *)tree_header_host_buffer.address;
 
-  std::vector<Vertex> split_vertices;
-  split_vertices.reserve(mesh_data.vertex_arr.size());
-
-  for (u32 i = 0; i < mesh_data.index_arr.size(); i += 3) {
-    SubdivideTriangle(split_threashold,
-                      {
-                          mesh_data.vertex_arr[mesh_data.index_arr[i + 0]],
-                          mesh_data.vertex_arr[mesh_data.index_arr[i + 1]],
-                          mesh_data.vertex_arr[mesh_data.index_arr[i + 2]],
-                      },
-                      split_vertices);
-  }
-
   VulkanBuffer vertex_buffer;
-  vertex_buffer.Create(sizeof(Vertex) * split_vertices.size(),
+  vertex_buffer.Create(sizeof(Vertex) * mesh_data.vertex_arr.size(),
                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-  constexpr bool host = true;
-
+  VulkanBuffer index_buffer;
+  index_buffer.Create(sizeof(Index) * mesh_data.index_arr.size(),
+                      VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
   VulkanImage<ImageType::Planar> albedo_image;
   albedo_image.Create(mesh_data.material.albedo_extent, VK_FORMAT_R8G8B8A8_UNORM,
                       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
+  voxelize_descriptor.Update<DeviceResourceType::Buffer>(VERTEX_BUFFER_BINDING, &vertex_buffer);
+  voxelize_descriptor.Update<DeviceResourceType::SampledImage>(ALBEDO_IMAGE_BINDING, &albedo_image);
+
   const u64 image_data_size =
       mesh_data.material.albedo_extent.width * mesh_data.material.albedo_extent.height * 4;
 
+  constexpr bool host = true;
   VulkanBuffer staging_buffer;
-  staging_buffer.Create(vertex_buffer.size + image_data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, host);
-
-  voxelize_descriptor.Update<DeviceResourceType::Buffer>(VERTEX_BUFFER_BINDING, &vertex_buffer);
-  voxelize_descriptor.Update<DeviceResourceType::SampledImage>(ALBEDO_IMAGE_BINDING, &albedo_image);
+  staging_buffer.Create(vertex_buffer.size + index_buffer.size + image_data_size,
+                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT, host);
 
   {
     for (u32 depth = 1; depth < MAX_VOXLELIZE_DEPTH; depth++) {
@@ -237,6 +187,7 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
           VulkanSubPass<SubPassType::Transfer> transfer_pass;
           transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(staging_buffer);
           transfer_pass.AddDependency<DeviceResourceType::TransferDst>(vertex_buffer);
+          transfer_pass.AddDependency<DeviceResourceType::TransferDst>(index_buffer);
           transfer_pass.AddDependency<DeviceResourceType::TransferDst>(albedo_image);
           transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(empty_page_host_buffer);
 
@@ -252,9 +203,13 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
           u64 offset = 0;
 
           if (depth == 1) {
-            memcpy((char *)staging_buffer.address + offset, split_vertices.data(), vertex_buffer.size);
+            memcpy((char *)staging_buffer.address + offset, mesh_data.vertex_arr.data(), vertex_buffer.size);
             cmd.UploadBufferToBuffer(staging_buffer, vertex_buffer, vertex_buffer.size, offset);
             offset += vertex_buffer.size;
+
+            memcpy((char *)staging_buffer.address + offset, mesh_data.index_arr.data(), index_buffer.size);
+            cmd.UploadBufferToBuffer(staging_buffer, index_buffer, index_buffer.size, offset);
+            offset += index_buffer.size;
 
             memcpy((char *)staging_buffer.address + offset, mesh_data.material.albedo_data, image_data_size);
             cmd.UploadBufferToImage(staging_buffer, albedo_image, offset);
@@ -269,7 +224,7 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
         }
 
         {
-          VulkanSubPass<SubPassType::Compute> allocate_pass;
+          VulkanSubPass<SubPassType::Graphic> allocate_pass;
           allocate_pass.AddDependency<DeviceResourceType::Buffer>(vertex_buffer);
           allocate_pass.AddDependency<DeviceResourceType::RWBuffer>(tree_header_buffer);
           for (u32 i = 0; i < pages.size(); i++) {
@@ -280,14 +235,13 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
 
           cmd.BindSubPass(allocate_pass);
 
-          VoxelizePushConstants pc;
-          pc.count = split_vertices.size() / 3;
-          pc.depth = depth;
-
+          cmd.BeginRendering({}, nullptr, Vec2u32(1 << (MAX_VOXLELIZE_DEPTH * 2)));
           cmd.BindPipeline(allocate_pipeline);
           cmd.BindDescriptors({voxelize_descriptor, tree_descriptor});
-          cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(pc), &pc);
-          cmd.Dispatch(Vec3u32((pc.count + 63) / 64, 1, 1));
+          cmd.PushConstants(VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(u32), &depth);
+          cmd.BindIndexBuffer(index_buffer);
+          cmd.DrawIndexed(mesh_data.index_arr.size());
+          cmd.EndRendering();
         }
 
         {
@@ -328,7 +282,7 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
       }
     }
     {
-      VulkanSubPass<SubPassType::Compute> child_mask_pass;
+      VulkanSubPass<SubPassType::Graphic> child_mask_pass;
       child_mask_pass.AddDependency<DeviceResourceType::Buffer>(vertex_buffer);
       child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(tree_header_buffer);
       for (u32 i = 0; i < pages.size(); i++) {
@@ -342,41 +296,15 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
 
       cmd.BindSubPass(child_mask_pass);
 
-      VoxelizePushConstants pc;
-      pc.count = split_vertices.size() / 3;
-      pc.depth = MAX_VOXLELIZE_DEPTH - 1;
+      const u32 depth = MAX_VOXLELIZE_DEPTH;
 
+      cmd.BeginRendering({}, nullptr, Vec2u32(1 << (depth * 2)));
       cmd.BindPipeline(allocate_child_mask_pipeline);
       cmd.BindDescriptors({voxelize_descriptor, tree_descriptor});
-      cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(pc), &pc);
-      cmd.Dispatch(Vec3u32((pc.count + 63) / 64, 1, 1));
+      cmd.BindIndexBuffer(index_buffer);
+      cmd.DrawIndexed(mesh_data.index_arr.size());
+      cmd.EndRendering();
     }
   });
-
-  /*
-  VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
-    for (i32 i = MAX_VOXLELIZE_DEPTH - 2; i >= 0; i--) {
-      VulkanSubPass<SubPassType::Compute> radiance_pass;
-      radiance_pass.AddDependency<DeviceResourceType::Buffer>(tree_header_buffer);
-      for (auto &page : pages[i]) {
-        radiance_pass.AddDependency<DeviceResourceType::RWBuffer>(*page);
-      }
-      for (auto &page : (i == MAX_VOXLELIZE_DEPTH - 2) ? leaf_pages : pages[i + 1]) {
-        radiance_pass.AddDependency<DeviceResourceType::Buffer>(*page);
-      }
-
-      cmd.BindSubPass(radiance_pass);
-
-      VoxelizePushConstants pc;
-      pc.count = header->level_voxel_count[i];
-      pc.depth = i;
-
-      cmd.BindPipeline(mip_map_radiance_pipeline);
-      cmd.BindDescriptors({tree_descriptor});
-      cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(pc), &pc);
-      cmd.Dispatch(Vec3u32((pc.count + 63) / 64, 1, 1));
-    }
-  });
-  */
 }
 } // namespace Core

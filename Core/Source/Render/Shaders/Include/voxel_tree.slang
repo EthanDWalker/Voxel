@@ -147,6 +147,7 @@ struct RaycastResult {
   bool error;
   uint32_t3 tree_index;
   float t;
+  uint32_t iterations;
 };
 
 void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) {
@@ -154,6 +155,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
   result.error = false;
   result.t = 0.0f;
   result.hit_color = 0.0f;
+  result.iterations = 0;
   ray_dir += 1e-4f;
   float ray_t_min, ray_t_max;
   const bool intersect = RayAABBIntersect(ray_dir, ray_origin, voxel_tree_header.min_bound * (1.0f - 1e-5f),
@@ -163,6 +165,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
   }
 
   ray_t_min = max(ray_t_min, 0.0f);
+  result.t += ray_t_min;
 
   float3 position = ray_origin + ray_dir * ray_t_min;
 
@@ -172,8 +175,6 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
   const int32_t3 voxel_step = sign(ray_dir);
 
   uint32_t3 current_index = GetTreeIndex(position);
-
-  uint32_t iterations = 0;
 
   const uint32_t memory_index = spirv_asm {
         result:$$uint = OpLoad builtin(LocalInvocationIndex:uint);
@@ -194,7 +195,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
                        : GetLocalIndex(current_index, 0);
     uint32_t local_index;
 
-    if (initial_ptr_stack_depth == 0) {
+    if (invalidated_stack_size == 0) {
       local_index = GetLocalIndex(current_index, level);
 
       is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
@@ -254,11 +255,11 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
     last_index = current_index;
     current_index = GetTreeIndex(position);
 
-    if (iterations > 1000) {
+    if (result.iterations > 1000) {
       result.error = true;
       return;
     }
-    iterations++;
+    result.iterations++;
   }
 
   const float3 voxel_min_bound =

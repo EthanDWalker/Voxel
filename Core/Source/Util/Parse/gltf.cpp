@@ -32,7 +32,8 @@ enum class GlbAccessorComponentType : u32 {
   f32 = 5126,
 };
 
-constexpr u32 GetGlbAccessorComponentTypeSize(const GlbAccessorComponentType type) {
+u32 GetGlbAccessorComponentTypeSize(const GlbAccessorComponentType type) {
+  ZoneScoped;
   switch (type) {
   case GlbAccessorComponentType::i8:
   case GlbAccessorComponentType::u8: {
@@ -57,6 +58,7 @@ struct GlbChunkHeader {
 };
 
 void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_file_data) {
+  ZoneScoped;
   SCOPED_TIMER("glb parsing");
   std::ifstream file(file_path, std::ios::in | std::ios::binary);
 

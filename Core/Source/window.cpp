@@ -5,17 +5,25 @@ namespace Core {
 void *Window::handle = nullptr;
 
 Vec2u32 Window::GetSize() {
+  ZoneScoped;
   Vec2u32 size;
   glfwGetWindowSize((GLFWwindow *)handle, (i32 *)&size.width, (i32 *)&size.height);
 
   return size;
 }
 
-bool Window::ShouldClose() { return glfwWindowShouldClose((GLFWwindow *)handle); }
+bool Window::ShouldClose() {
+  ZoneScoped;
+  return glfwWindowShouldClose((GLFWwindow *)handle);
+}
 
-void Window::SetShouldClose(const bool v) { glfwSetWindowShouldClose((GLFWwindow *)handle, v); }
+void Window::SetShouldClose(const bool v) {
+  ZoneScoped;
+  glfwSetWindowShouldClose((GLFWwindow *)handle, v);
+}
 
 void Window::SetTitle(const std::string &title) {
+  ZoneScoped;
   glfwSetWindowTitle((GLFWwindow *)handle, title.c_str());
 }
 } // namespace Core

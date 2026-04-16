@@ -50,4 +50,5 @@ target_link_libraries(core PUBLIC
     glfw
     vk-bootstrap::vk-bootstrap
     mathlib
+    TracyClient
 )

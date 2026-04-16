@@ -20,6 +20,7 @@ struct ThreadPool {
   static bool stop;
 
   static void StartUp(const u32 thread_count = std::thread::hardware_concurrency() / 2 + 1) {
+    ZoneScoped;
     all_thread_task_complete.resize(thread_count);
     for (u32 i = 0; i < thread_count; i++) {
       threads.emplace_back([i]() {
@@ -29,8 +30,7 @@ struct ThreadPool {
           {
             std::unique_lock<std::mutex> lock(queue_mutex);
 
-            cv.wait(lock,
-                    []() { return !task_queue.empty() || !all_thread_queue.empty() || stop; });
+            cv.wait(lock, []() { return !task_queue.empty() || !all_thread_queue.empty() || stop; });
 
             if (stop && task_queue.empty() && all_thread_queue.empty()) {
               return;
@@ -70,6 +70,7 @@ struct ThreadPool {
   }
 
   static void QueueTask(std::function<void(u32)> task) {
+    ZoneScoped;
     {
       std::unique_lock<std::mutex> lock(queue_mutex);
       task_queue.emplace(task);
@@ -78,6 +79,7 @@ struct ThreadPool {
   }
 
   static void CreateThreadLocalData(std::function<void(u32)> task) {
+    ZoneScoped;
     {
       std::unique_lock<std::mutex> lock(queue_mutex);
       all_thread_queue.emplace(task);
@@ -86,6 +88,7 @@ struct ThreadPool {
   }
 
   static void DestroyThreadLocalData(std::function<void(u32)> task) {
+    ZoneScoped;
     {
       std::unique_lock<std::mutex> lock(queue_mutex);
       all_thread_queue.emplace(task);
@@ -95,6 +98,7 @@ struct ThreadPool {
   }
 
   static void ShutDown() {
+    ZoneScoped;
     {
       std::unique_lock<std::mutex> lock(queue_mutex);
       stop = true;

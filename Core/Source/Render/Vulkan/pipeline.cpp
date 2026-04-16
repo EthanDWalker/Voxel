@@ -22,21 +22,27 @@ enum class SlangTokens : u8 {
   Include,
   StringIndicator,
   Define,
+  Pragma,
 };
 
-constexpr std::string_view SlangTokenStrings[] = {"import", ";", "#include", "\"", "#define"};
+constexpr std::string_view SlangTokenStrings[] = {
+    "import", ";", "#include", "\"", "#define", "#pragma",
+};
 
 void BaseVulkanPipeline::Destroy() {
+  ZoneScoped;
   vkDestroyPipeline(VulkanContext::device, obj, nullptr);
   vkDestroyPipelineLayout(VulkanContext::device, layout, nullptr);
 }
 
 BaseVulkanPipeline::~BaseVulkanPipeline() {
+  ZoneScoped;
   vkDestroyPipeline(VulkanContext::device, obj, nullptr);
   vkDestroyPipelineLayout(VulkanContext::device, layout, nullptr);
 }
 
 void GetShaderImports(const std::filesystem::path &shader_src, std::vector<std::filesystem::path> &paths) {
+  ZoneScoped;
   std::ifstream src_file(shader_src);
 
   std::string token;
@@ -46,11 +52,15 @@ void GetShaderImports(const std::filesystem::path &shader_src, std::vector<std::
     if (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Import)]) {
       std::getline(src_file, token, ';');
       paths.push_back(shader_src.parent_path() / (token + ".slang"));
+      GetShaderImports(paths.back(), paths);
     } else if (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Include)]) {
       std::getline(src_file, token, '"');
       std::getline(src_file, token, '"');
       paths.push_back(shader_src.parent_path() / (token));
+
+      GetShaderImports(paths.back(), paths);
     } else if (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Define)]) {
+    } else if (token == SlangTokenStrings[static_cast<u8>(SlangTokens::Pragma)]) {
     } else {
       break;
     }
@@ -60,6 +70,7 @@ void GetShaderImports(const std::filesystem::path &shader_src, std::vector<std::
 }
 
 void LoadShaderModule(const std::filesystem::path &shader_src, VkShaderModule *out_shader_module) {
+  ZoneScoped;
   std::string shader_bin = shader_src.string() + ".spv";
 
   std::vector<std::filesystem::path> import_paths;
@@ -69,7 +80,8 @@ void LoadShaderModule(const std::filesystem::path &shader_src, VkShaderModule *o
   bool import_updated = false;
   if (std::filesystem::exists(shader_bin)) {
     for (const std::filesystem::path import : import_paths) {
-      Assert(std::filesystem::exists(import), "invalid import/include found in shader file {}", shader_src.string());
+      Assert(std::filesystem::exists(import), "invalid import/include found in shader file {}",
+             shader_src.string());
       if (std::filesystem::last_write_time(import) > std::filesystem::last_write_time(shader_bin)) {
         import_updated = true;
         break;
@@ -118,6 +130,7 @@ void LoadShaderModule(const std::filesystem::path &shader_src, VkShaderModule *o
 }
 
 void PipelineBuildManager::RecreatePipelines() {
+  ZoneScoped;
   vkDeviceWaitIdle(VulkanContext::device);
   for (u32 i = 0; i < graphics_pipeline_ptr_arr.size(); i++) {
     graphics_pipeline_ptr_arr[i]->Destroy();
@@ -130,6 +143,7 @@ void PipelineBuildManager::RecreatePipelines() {
 }
 
 void PipelineBuilder<PipelineType::Compute>::AddPushConstantRange(u32 size) {
+  ZoneScoped;
   VkPushConstantRange range{};
   u32 offset = 0;
   for (auto &range : push_constant_ranges) {
@@ -142,10 +156,12 @@ void PipelineBuilder<PipelineType::Compute>::AddPushConstantRange(u32 size) {
 }
 
 void PipelineBuilder<PipelineType::Compute>::AddDescriptor(const VulkanDescriptor &descriptor) {
+  ZoneScoped;
   descriptor_set_layouts.push_back(descriptor.layout);
 }
 
 void PipelineBuilder<PipelineType::Compute>::Build(VulkanPipeline<PipelineType::Compute> &pipeline) {
+  ZoneScoped;
   VkShaderModule shader;
 
   Assert(std::filesystem::exists(shader_src), "compute source ({}) doesnt exist", shader_src.string());
@@ -179,6 +195,7 @@ void PipelineBuilder<PipelineType::Compute>::Build(VulkanPipeline<PipelineType::
 
 // need to set shaders and depth image format
 void PipelineBuilder<PipelineType::Graphic>::Default() {
+  ZoneScoped;
   SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
   SetPolygonMode(VK_POLYGON_MODE_FILL);
   SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -189,29 +206,25 @@ void PipelineBuilder<PipelineType::Graphic>::Default() {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetInputTopology(VkPrimitiveTopology topology) {
+  ZoneScoped;
   input_assembly.topology = topology;
   input_assembly.primitiveRestartEnable = VK_FALSE;
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetPolygonMode(VkPolygonMode mode) {
+  ZoneScoped;
   rasterization.polygonMode = mode;
   rasterization.lineWidth = 1.0f;
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetCullMode(VkCullModeFlags cull_mode, VkFrontFace front_face) {
+  ZoneScoped;
   rasterization.cullMode = cull_mode;
   rasterization.frontFace = front_face;
 }
 
 void PipelineBuilder<PipelineType::Graphic>::EnableConservativeRasterization() {
-  VkPhysicalDeviceConservativeRasterizationPropertiesEXT props{};
-  props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONSERVATIVE_RASTERIZATION_PROPERTIES_EXT;
-
-  VkPhysicalDeviceProperties2KHR device_props{};
-  device_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR;
-  device_props.pNext = &props;
-  vkGetPhysicalDeviceProperties2(VulkanContext::physical_device, &device_props);
-
+  ZoneScoped;
   conservative_rasterization.conservativeRasterizationMode =
       VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
 
@@ -219,12 +232,14 @@ void PipelineBuilder<PipelineType::Graphic>::EnableConservativeRasterization() {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetMultisampling(VkSampleCountFlagBits sample_count) {
+  ZoneScoped;
   multisample.sampleShadingEnable = VK_FALSE;
   multisample.rasterizationSamples = sample_count;
   multisample.minSampleShading = 0.2f;
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetNoMultisampling() {
+  ZoneScoped;
   multisample.sampleShadingEnable = VK_FALSE;
   multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
   multisample.minSampleShading = 1.0f;
@@ -234,6 +249,7 @@ void PipelineBuilder<PipelineType::Graphic>::SetNoMultisampling() {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetBlendingAdditive(u8 index) {
+  ZoneScoped;
   color_attachments[index].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
   color_attachments[index].blendEnable = VK_TRUE;
@@ -246,6 +262,7 @@ void PipelineBuilder<PipelineType::Graphic>::SetBlendingAdditive(u8 index) {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetBlendingAlpha(u8 index) {
+  ZoneScoped;
   color_attachments[index].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
   color_attachments[index].blendEnable = VK_TRUE;
@@ -258,12 +275,14 @@ void PipelineBuilder<PipelineType::Graphic>::SetBlendingAlpha(u8 index) {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetNoBlending(u8 index) {
+  ZoneScoped;
   color_attachments[index].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
   color_attachments[index].blendEnable = VK_FALSE;
 }
 
 void PipelineBuilder<PipelineType::Graphic>::AddColorAttachment(VkFormat format) {
+  ZoneScoped;
   color_attachment_formats.push_back(format);
   color_attachments.push_back({});
   render_info.colorAttachmentCount++;
@@ -272,6 +291,7 @@ void PipelineBuilder<PipelineType::Graphic>::AddColorAttachment(VkFormat format)
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetNoDepthTest() {
+  ZoneScoped;
   depth_stencil.depthTestEnable = VK_FALSE;
   depth_stencil.depthWriteEnable = VK_FALSE;
   depth_stencil.depthCompareOp = VK_COMPARE_OP_NEVER;
@@ -284,6 +304,7 @@ void PipelineBuilder<PipelineType::Graphic>::SetNoDepthTest() {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetDepthTest() {
+  ZoneScoped;
   depth_stencil.depthTestEnable = VK_TRUE;
   depth_stencil.depthWriteEnable = VK_TRUE;
   depth_stencil.depthCompareOp = VK_COMPARE_OP_GREATER;
@@ -296,10 +317,12 @@ void PipelineBuilder<PipelineType::Graphic>::SetDepthTest() {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetDepthFormat(VkFormat format) {
+  ZoneScoped;
   render_info.depthAttachmentFormat = format;
 }
 
 void PipelineBuilder<PipelineType::Graphic>::AddPushConstantRange(VkShaderStageFlags stage_flags, u32 size) {
+  ZoneScoped;
   VkPushConstantRange range{};
   u32 offset = 0;
   for (auto range : push_constant_ranges) {
@@ -312,10 +335,12 @@ void PipelineBuilder<PipelineType::Graphic>::AddPushConstantRange(VkShaderStageF
 }
 
 void PipelineBuilder<PipelineType::Graphic>::AddDescriptor(const VulkanDescriptor &descriptor) {
+  ZoneScoped;
   descriptor_set_layouts.push_back(descriptor.layout);
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetViewportCount(u32 count) {
+  ZoneScoped;
   viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
   viewport_state.pNext = nullptr;
 
@@ -324,6 +349,7 @@ void PipelineBuilder<PipelineType::Graphic>::SetViewportCount(u32 count) {
 }
 
 void PipelineBuilder<PipelineType::Graphic>::Build(VulkanPipeline<PipelineType::Graphic> &pipeline) {
+  ZoneScoped;
   Assert(std::filesystem::exists(vert_shader_src_path), "vert source ({}) doesnt exist",
          vert_shader_src_path.string());
   Assert(std::filesystem::exists(frag_shader_src_path), "frag source ({}) doesnt exist",
@@ -383,6 +409,8 @@ void PipelineBuilder<PipelineType::Graphic>::Build(VulkanPipeline<PipelineType::
     shader_stages[2].module = geom_shader.value();
     shader_stages[2].pName = "GMain";
   };
+
+  rasterization.pNext = &conservative_rasterization;
 
   pipeline_ci.stageCount = shader_stages.size();
   pipeline_ci.pStages = shader_stages.data();

@@ -50,13 +50,14 @@ struct SparseVoxelTree {
 
   std::array<std::vector<std::unique_ptr<VulkanBuffer>>, MAX_VOXLELIZE_DEPTH - 1> pages{};
   std::vector<std::unique_ptr<VulkanBuffer>> leaf_pages;
+  std::vector<std::unique_ptr<VulkanImage<ImageType::Planar>>> radiance_pages;
   VulkanDescriptor voxelize_descriptor;
   VulkanDescriptor tree_descriptor;
   VulkanBuffer tree_header_buffer;
   VulkanBuffer tree_header_host_buffer;
   VulkanBuffer empty_page_host_buffer;
-  VulkanPipeline<PipelineType::Compute> allocate_pipeline;
-  VulkanPipeline<PipelineType::Compute> allocate_child_mask_pipeline;
+  VulkanPipeline<PipelineType::Graphic> allocate_pipeline;
+  VulkanPipeline<PipelineType::Graphic> allocate_child_mask_pipeline;
   VulkanSampler sampler;
 
   SparseVoxelTree();

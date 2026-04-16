@@ -31,6 +31,8 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
   if (all(is_whole)) {
     t = beam_image.Load(beam_image_location);
     t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
   } else if (is_whole.x) {
     t = beam_image.Load(beam_image_location);
     t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
@@ -51,15 +53,13 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
     t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
     t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
   }
-  t -= 1.0f;
 
   const float4x4 inv_view_proj =
       mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
           PerspectiveReverseZInverse(camera.z_near, camera.z_near + 1.0f, camera.fov_y, camera.aspect_ratio));
 
-  const float2 ndc =
-      float2(float(dispatch_id.x + 0.5f) / float(image_size.x) * 2.0f - 1.0f,
-             float(dispatch_id.y + 0.5f) / float(image_size.y) * -2.0f + 1.0f);
+  const float2 ndc = float2(float(dispatch_id.x + 0.5f) / float(image_size.x) * 2.0f - 1.0f,
+                            float(dispatch_id.y + 0.5f) / float(image_size.y) * -2.0f + 1.0f);
 
   const float3 ndc_min = float3(ndc, 0.0f);
   const float3 ndc_max = float3(ndc, 1.0f);
@@ -77,12 +77,7 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
     const float3 L = -directional_light_arr[0].direction;
     const float light_impact = max(dot(L, res.hit_normal), 0.3f);
 
-    RaycastResult shadow_res;
-    shadow_res.hit = false;
-    Raycast(res.hit_position + (2e-3f * L), L, shadow_res);
-    const float shadow = shadow_res.hit ? 0.3f : 1.0f;
-
-    const float3 acc = res.hit_color.rgb * light_impact * shadow;
+    const float3 acc = res.hit_color.rgb * light_impact;
 
     image.Store(dispatch_id, float4(acc, 1.0f));
   } else {

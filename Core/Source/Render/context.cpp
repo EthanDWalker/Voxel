@@ -12,11 +12,13 @@ namespace Core {
 RenderContext *render_context = nullptr;
 
 void RenderContext::RecreatePipelines() {
+  ZoneScoped;
   vkDeviceWaitIdle(VulkanContext::device);
   PipelineBuildManager::RecreatePipelines();
 }
 
 void RenderContext::CreatePipelines() {
+  ZoneScoped;
   {
     auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
     pipeline_builder.AddDescriptor(image_descriptor);
@@ -35,25 +37,10 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "beam.slang");
     PipelineBuildManager::Build(pipeline_builder, beam_prepass_pipeline);
   }
-
-  {
-    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
-    pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
-    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "mip_map_radiance.slang");
-    pipeline_builder.AddPushConstantRange(sizeof(u32));
-    PipelineBuildManager::Build(pipeline_builder, mip_map_radiance_pipeline);
-  }
-
-  {
-    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
-    pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
-    pipeline_builder.AddDescriptor(light_descriptor);
-    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "calculate_radiance.slang");
-    PipelineBuildManager::Build(pipeline_builder, calculate_radiance_pipeline);
-  }
 }
 
 void RenderContext::Create(const Spec &spec) {
+  ZoneScoped;
   const Vec2u32 window_size = Window::GetSize();
   current_spec = spec;
 
@@ -92,6 +79,9 @@ void RenderContext::Create(const Spec &spec) {
   beam_pass.AddDependency<DeviceResourceType::Buffer>(camera_buffer);
 }
 
-RenderContext::~RenderContext() { WaitIdle(); }
+RenderContext::~RenderContext() {
+  ZoneScoped;
+  WaitIdle();
+}
 
 } // namespace Core

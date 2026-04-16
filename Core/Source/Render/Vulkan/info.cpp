@@ -4,6 +4,7 @@
 
 namespace Core {
 VkCommandBufferBeginInfo CommandBufferBeginInfo(VkCommandBufferUsageFlags flags) {
+  ZoneScoped;
   VkCommandBufferBeginInfo info{};
   info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
   info.flags = flags;
@@ -11,6 +12,7 @@ VkCommandBufferBeginInfo CommandBufferBeginInfo(VkCommandBufferUsageFlags flags)
 }
 
 VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspect_mask) {
+  ZoneScoped;
   VkImageSubresourceRange info{};
   info.aspectMask = aspect_mask;
   info.baseMipLevel = 0;
@@ -21,6 +23,7 @@ VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspect_mask) {
 }
 
 VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore) {
+  ZoneScoped;
   VkSemaphoreSubmitInfo info{};
   info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
   info.semaphore = semaphore;
@@ -30,6 +33,7 @@ VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSe
 }
 
 VkCommandBufferSubmitInfo CommandBufferSubmitInfo(VkCommandBuffer cmd) {
+  ZoneScoped;
   VkCommandBufferSubmitInfo info{};
   info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
   info.commandBuffer = cmd;
@@ -39,6 +43,7 @@ VkCommandBufferSubmitInfo CommandBufferSubmitInfo(VkCommandBuffer cmd) {
 VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo *cmd,
                          VkSemaphoreSubmitInfo *signal_semaphore_info,
                          VkSemaphoreSubmitInfo *wait_semaphore_info) {
+  ZoneScoped;
   VkSubmitInfo2 info{};
   info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
   info.pCommandBufferInfos = cmd;
@@ -52,6 +57,7 @@ VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo *cmd,
 
 VkImageCreateInfo ImageCI(VkFormat format, VkImageUsageFlags usage_flags, Vec3u32 extent,
                           u32 mip_levels) {
+  ZoneScoped;
   VkImageCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   info.imageType = VK_IMAGE_TYPE_2D;
@@ -67,6 +73,7 @@ VkImageCreateInfo ImageCI(VkFormat format, VkImageUsageFlags usage_flags, Vec3u3
 }
 
 VkImageViewCreateInfo ImageViewCI(VkFormat format, VkImage image, u32 mip_levels) {
+  ZoneScoped;
   VkImageViewCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   info.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -83,6 +90,7 @@ VkImageViewCreateInfo ImageViewCI(VkFormat format, VkImage image, u32 mip_levels
 
 VkRenderingAttachmentInfo AttachmentInfo(VkImageView view, VkImageView resolve_view,
                                          VkClearValue *clear, VkImageLayout layout) {
+  ZoneScoped;
   VkRenderingAttachmentInfo info{};
   info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
   info.imageLayout = layout;
@@ -103,6 +111,7 @@ VkRenderingAttachmentInfo AttachmentInfo(VkImageView view, VkImageView resolve_v
 VkRenderingAttachmentInfo DepthAttachmentInfo(VkImageView image_view, VkImageLayout layout,
                                               VkAttachmentLoadOp load_op,
                                               VkAttachmentStoreOp store_op) {
+  ZoneScoped;
   VkRenderingAttachmentInfo info{};
   info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
   info.imageView = image_view;
@@ -116,6 +125,7 @@ VkRenderingAttachmentInfo DepthAttachmentInfo(VkImageView image_view, VkImageLay
 VkRenderingInfo RenderingInfo(Vec3u32 render_extent,
                               std::span<VkRenderingAttachmentInfo> color_attachments,
                               VkRenderingAttachmentInfo *depth_attachment) {
+  ZoneScoped;
   VkRenderingInfo info{};
   info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
   info.renderArea = VkRect2D{VkOffset2D{0, 0}, {render_extent.width, render_extent.height}};
@@ -127,6 +137,7 @@ VkRenderingInfo RenderingInfo(Vec3u32 render_extent,
 }
 
 VkViewport Viewport(Vec3u32 extent) {
+  ZoneScoped;
   VkViewport viewport{};
   viewport.x = 0;
   viewport.y = 0;
@@ -138,6 +149,7 @@ VkViewport Viewport(Vec3u32 extent) {
 }
 
 VkRect2D Scissor(Vec3u32 extent) {
+  ZoneScoped;
   VkRect2D scissor{};
   scissor.offset.x = 0;
   scissor.offset.y = 0;

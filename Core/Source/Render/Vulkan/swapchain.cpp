@@ -1,12 +1,15 @@
 #include "Core/Render/Vulkan/swapchain.h"
 #include "Core/Render/Vulkan/command_buffer.h"
+#include "Core/Render/Vulkan/command_pool.h"
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/info.h"
 #include "Core/Render/Vulkan/util.h"
+#include "Core/Render/frame.h"
 #include "VkBootstrap.h"
 
 namespace Core {
 VulkanSwapchain::~VulkanSwapchain() {
+  ZoneScoped;
   vkDeviceWaitIdle(VulkanContext::device);
   vkDestroySwapchainKHR(VulkanContext::device, obj, nullptr);
   for (size_t i = 0; i < FRAME_OVERLAP; i++) {
@@ -18,6 +21,7 @@ VulkanSwapchain::~VulkanSwapchain() {
 }
 
 void VulkanSwapchain::Create(Vec2u32 extent) {
+  ZoneScoped;
   vkb::SwapchainBuilder swapchain_builder{
       VulkanContext::physical_device,
       VulkanContext::device,
@@ -28,8 +32,8 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
 
   vkb::Swapchain vkb_swapchain =
       swapchain_builder
-          .set_desired_format(VkSurfaceFormatKHR{.format = this->format,
-                                                 .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+          .set_desired_format(
+              VkSurfaceFormatKHR{.format = this->format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
           .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
           .set_required_min_image_count(FRAME_OVERLAP)
           .set_desired_extent(extent.width, extent.height)
@@ -57,15 +61,14 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
 
     VK_CHECK(vkCreateFence(VulkanContext::device, &fence_ci, nullptr, &render_fences[i]));
 
-    VK_CHECK(
-        vkCreateSemaphore(VulkanContext::device, &semaphore_ci, nullptr, &render_semaphores[i]));
+    VK_CHECK(vkCreateSemaphore(VulkanContext::device, &semaphore_ci, nullptr, &render_semaphores[i]));
 
-    VK_CHECK(
-        vkCreateSemaphore(VulkanContext::device, &semaphore_ci, nullptr, &swapchain_semaphores[i]));
+    VK_CHECK(vkCreateSemaphore(VulkanContext::device, &semaphore_ci, nullptr, &swapchain_semaphores[i]));
   }
 }
 
 void VulkanSwapchain::Resize(Vec2u32 extent) {
+  ZoneScoped;
 
   vkb::SwapchainBuilder swapchain_builder{
       VulkanContext::physical_device,
@@ -79,8 +82,8 @@ void VulkanSwapchain::Resize(Vec2u32 extent) {
 
   vkb::Swapchain vkb_swapchain =
       swapchain_builder
-          .set_desired_format(VkSurfaceFormatKHR{.format = this->format,
-                                                 .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+          .set_desired_format(
+              VkSurfaceFormatKHR{.format = this->format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
           .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
           .set_required_min_image_count(FRAME_OVERLAP)
           .set_old_swapchain(obj)
@@ -105,7 +108,9 @@ void VulkanSwapchain::Resize(Vec2u32 extent) {
 }
 
 void VulkanSwapchain::AcquireNextImage(bool &resize) {
+  ZoneScoped;
   u32 frame_index = frame_number % FRAME_OVERLAP;
+
   VK_CHECK(vkWaitForFences(VulkanContext::device, 1, &render_fences[frame_index], VK_TRUE,
                            std::numeric_limits<u32>::max()));
   VK_CHECK(vkResetFences(VulkanContext::device, 1, &render_fences[frame_index]));
@@ -123,21 +128,22 @@ void VulkanSwapchain::AcquireNextImage(bool &resize) {
 }
 
 VulkanCommandBuffer &VulkanSwapchain::GetActiveCommandBuffer() {
+  ZoneScoped;
   u32 frame_index = frame_number % FRAME_OVERLAP;
   return command_buffers[frame_index];
 }
 
-VulkanCommandBuffer &VulkanSwapchain::BeginCommandBuffer() {
+void VulkanSwapchain::BeginCommandBuffer() {
+  ZoneScoped;
   u32 frame_index = frame_number % FRAME_OVERLAP;
 
   VK_CHECK(vkResetCommandPool(VulkanContext::device, command_pools[frame_index].obj, 0));
 
   command_buffers[frame_index].Begin();
-
-  return command_buffers[frame_index];
 }
 
 void VulkanSwapchain::SubmitCommandBuffer() {
+  ZoneScoped;
   u32 frame_index = frame_number % FRAME_OVERLAP;
 
   VkImageMemoryBarrier2 image_barrier{};
@@ -155,8 +161,7 @@ void VulkanSwapchain::SubmitCommandBuffer() {
 
   command_buffers[frame_index].End();
 
-  VkCommandBufferSubmitInfo cmd_submit_info =
-      CommandBufferSubmitInfo(command_buffers[frame_index].obj);
+  VkCommandBufferSubmitInfo cmd_submit_info = CommandBufferSubmitInfo(command_buffers[frame_index].obj);
 
   VkSemaphoreSubmitInfo wait_semaphore_info = SemaphoreSubmitInfo(
       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, swapchain_semaphores[frame_index]);
@@ -164,14 +169,13 @@ void VulkanSwapchain::SubmitCommandBuffer() {
   VkSemaphoreSubmitInfo signal_semaphore_info =
       SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, render_semaphores[frame_index]);
 
-  VkSubmitInfo2 submit_info =
-      SubmitInfo(&cmd_submit_info, &signal_semaphore_info, &wait_semaphore_info);
+  VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, &signal_semaphore_info, &wait_semaphore_info);
 
-  VK_CHECK(
-      vkQueueSubmit2(VulkanContext::graphics_queue, 1, &submit_info, render_fences[frame_index]));
+  VK_CHECK(vkQueueSubmit2(VulkanContext::graphics_queue, 1, &submit_info, render_fences[frame_index]));
 }
 
 void VulkanSwapchain::Present(bool &resize) {
+  ZoneScoped;
   u32 frame_index = frame_number % FRAME_OVERLAP;
 
   VkPresentInfoKHR present_info{};
@@ -193,5 +197,8 @@ void VulkanSwapchain::Present(bool &resize) {
   frame_number++;
 }
 
-BaseVulkanImage &VulkanSwapchain::GetImage() { return images[image_index]; }
+BaseVulkanImage &VulkanSwapchain::GetImage() {
+  ZoneScoped;
+  return images[image_index];
+}
 } // namespace Core
