@@ -125,6 +125,10 @@ template <> struct VulkanSubPass<SubPassType::Graphic> : BaseVulkanSubPass {
       barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
       barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
       barrier.dstStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+    } else if constexpr (T == DeviceResourceType::RWStorageImage) {
+      barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+      barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
     } else {
       static_assert(false, "Unsupported dependency type");
     }

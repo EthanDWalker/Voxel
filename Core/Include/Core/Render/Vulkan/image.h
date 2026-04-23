@@ -9,6 +9,7 @@ enum class ImageType : u8 {
   Planar,
   Volume,
   CubeMap,
+  VolumeRef,
 };
 
 struct BaseVulkanImage {
@@ -30,6 +31,9 @@ struct BaseVulkanImage {
   u32 depth = 0;
 
   void CreateBase(const VkImageCreateInfo &image_ci, VkImageViewCreateInfo &image_view_ci);
+  void CreateBaseRef(const BaseVulkanImage &base_image, VkImageViewCreateInfo &image_veiw_ci);
+
+  void DestroyBaseRef();
   void DestroyBase();
 
   Vec2u32 GetVec2u32() const { return {width, height}; }
@@ -46,7 +50,21 @@ template <> struct VulkanImage<ImageType::Planar> : BaseVulkanImage {
   ~VulkanImage<ImageType::Planar>();
 };
 
-template <> struct VulkanImage<ImageType::Volume> : BaseVulkanImage {};
+template <> struct VulkanImage<ImageType::Volume> : BaseVulkanImage {
+  void Recreate(Vec3u32 extent, VkFormat format, VkImageUsageFlags usage_flags, bool referenced = false,
+                bool mipmapped = false);
+  void Create(Vec3u32 extent, VkFormat format, VkImageUsageFlags usage_flags, bool referenced = false,
+              bool mipmapped = false);
+
+  ~VulkanImage<ImageType::Volume>();
+};
+
+template <> struct VulkanImage<ImageType::VolumeRef> : BaseVulkanImage {
+  void Recreate(const VulkanImage<ImageType::Volume> &image, VkFormat format, bool mipmapped = false);
+  void Create(const VulkanImage<ImageType::Volume> &image, VkFormat format, bool mipmapped = false);
+
+  ~VulkanImage<ImageType::VolumeRef>();
+};
 
 template <> struct VulkanImage<ImageType::CubeMap> : BaseVulkanImage {
   // ordered according to vulkan spec

@@ -4,14 +4,17 @@
 #include "Core/Render/Vulkan/submission_pass.h"
 #include "Core/Render/camera.h"
 #include "Core/Render/context.h"
+#include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
+#include "Core/Util/timer.h"
 #include "Core/window.h"
-#include "tracy/TracyVulkan.hpp"
 #include <cstring>
+#include <tracy/Tracy.hpp>
 
 namespace Core {
 void BeginFrame(bool &resize) {
   FrameMark;
+  ZoneScoped;
   render_context->swapchain.AcquireNextImage(resize);
   render_context->swapchain.BeginCommandBuffer();
 }
@@ -28,6 +31,16 @@ void EndFrame(bool &resize) {
   if (resize) {
     render_context->swapchain.Resize(Window::GetSize());
   }
+}
+
+void CalculateRadiance() {
+  ZoneScoped;
+  SCOPED_TIMER("radiance calculation")
+  VulkanContext::Submit([](VulkanCommandBuffer &cmd) {
+    cmd.BindPipeline(render_context->calculate_radiance_pipeline);
+    cmd.BindDescriptors({render_context->voxel_tree.tree_descriptor, render_context->light_descriptor});
+    cmd.Dispatch(Vec3u32(Vec2u32((1 << (render_context->voxel_tree.MAX_VOXLELIZE_DEPTH * 2)) / 8 + 1), 1));
+  });
 }
 
 void Frame(Camera &camera) {

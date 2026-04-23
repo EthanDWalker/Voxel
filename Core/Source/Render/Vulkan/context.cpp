@@ -73,7 +73,6 @@ void VulkanContext::StartUp() {
   features.shaderInt64 = true;
   features.shaderInt16 = true;
   features.fragmentStoresAndAtomics = true;
-  features.vertexPipelineStoresAndAtomics = true;
   features.geometryShader = true;
 
   VkPhysicalDeviceVulkan13Features features_13{};

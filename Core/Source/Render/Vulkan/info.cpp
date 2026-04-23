@@ -60,7 +60,6 @@ VkImageCreateInfo ImageCI(VkFormat format, VkImageUsageFlags usage_flags, Vec3u3
   ZoneScoped;
   VkImageCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  info.imageType = VK_IMAGE_TYPE_2D;
   info.extent = Vec3u32::To<VkExtent3D>(extent);
   info.format = format;
   info.imageType = extent.depth == 1 ? VK_IMAGE_TYPE_2D : VK_IMAGE_TYPE_3D;

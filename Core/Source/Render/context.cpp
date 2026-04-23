@@ -37,6 +37,22 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "beam.slang");
     PipelineBuildManager::Build(pipeline_builder, beam_prepass_pipeline);
   }
+
+  {
+    auto pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
+    pipeline_builder.AddDescriptor(light_descriptor);
+    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "calculate_radiance.slang");
+    pipeline_builder.Build(calculate_radiance_pipeline);
+  }
+
+  {
+    auto pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
+    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "mip_map_radiance.slang");
+    pipeline_builder.AddPushConstantRange(sizeof(u32));
+    pipeline_builder.Build(mip_map_radiance_pipeline);
+  }
 }
 
 void RenderContext::Create(const Spec &spec) {
@@ -75,6 +91,7 @@ void RenderContext::Create(const Spec &spec) {
   upload_pass.AddDependency<DeviceResourceType::TransferDst>(camera_buffer);
 
   main_draw_pass.AddDependency<DeviceResourceType::Buffer>(camera_buffer);
+  main_draw_pass.AddDependency<DeviceResourceType::Buffer>(directional_light_buffer);
 
   beam_pass.AddDependency<DeviceResourceType::Buffer>(camera_buffer);
 }

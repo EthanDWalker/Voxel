@@ -8,4 +8,5 @@ void BeginFrame(bool &resize);
 void EndFrame(bool &resize);
 void WaitIdle();
 void Resize(Vec2u32 extent);
+void CalculateRadiance();
 } // namespace Core

@@ -50,30 +50,24 @@ struct CountedBuffer<T> {
   }
 };
 
+// stored as alpha blue green red (ABGR)
 uint32_t PackRGBA8(const float4 data) {
   const float ratio = 255.0f;
-
-  uint32_t value = 0;
-
-  value |= uint32_t(data.r * ratio) << 24;
-  value |= uint32_t(data.g * ratio) << 16;
-  value |= uint32_t(data.b * ratio) << 8;
-  value |= uint32_t(data.a * ratio) << 0;
-
-  return value;
+  return dot(1, uint32_t4(data * ratio) << uint32_t4(0, 8, 16, 24));
 }
 
 float4 UnpackRGBA8(const uint32_t data) {
   const float ratio = 1.0f / 255.0f;
+  /*
 
   float4 value;
 
-  value.r = ((data >> 24) & 0xFF) * ratio;
-  value.g = ((data >> 16) & 0xFF) * ratio;
-  value.b = ((data >> 8) & 0xFF) * ratio;
-  value.a = ((data >> 0) & 0xFF) * ratio;
-
-  return value;
+  value.r = ((data >> 0) & 0xFF) * ratio;
+  value.g = ((data >> 8) & 0xFF) * ratio;
+  value.b = ((data >> 16) & 0xFF) * ratio;
+  value.a = ((data >> 24) & 0xFF) * ratio;
+  */
+  return (uint32_t4(data) >> uint32_t4(0, 8, 16, 24) & uint32_t4(0xFF)) * ratio;
 }
 
 bool RayAABBIntersect(const float3 ray_dir, const float3 ray_origin, const float3 bounds_min,

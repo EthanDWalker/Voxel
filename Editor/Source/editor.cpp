@@ -21,7 +21,7 @@ void Editor::StartUp() {
   }
 
   const Core::DirectionalLight dir_light = {
-      .direction = Normalize(Vec3f32(-0.3f, -1.0f, 0.4f)),
+      .direction = Normalize(Vec3f32(-0.2f, -1.0f, -0.1f)),
       .intesity = 1.0f,
       .color = Vec3f32(1.0f),
   };
@@ -32,14 +32,17 @@ void Editor::StartUp() {
       (Core::SparseVoxelTree::TreeHeader *)tree.tree_header_host_buffer.address;
 
   for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH - 1; i++) {
-    Core::Log("level {} voxel count {}", i, tree_header->level_voxel_count[i]);
+    Core::Log("level {} voxel count {} (pages {})", i, tree_header->level_voxel_count[i],
+              tree.pages[i].size());
   }
+  Core::Log("leaf count {} (pages {})", tree_header->leaf_voxel_count, tree.leaf_pages.size());
 
-  for (u32 i = 0; i < tree.MAX_VOXLELIZE_DEPTH - 1; i++) {
-    Core::Log("level {} page offset {}", i, tree_header->level_page_offset[i]);
-  }
+  Core::Log("radiance brick count {} (pages {})", tree_header->radiance_brick_count,
+            tree.radiance_pages.size());
 
   Core::AddDirectionalLight(dir_light);
+
+  Core::CalculateRadiance();
 }
 
 void Editor::Run() {
@@ -96,6 +99,9 @@ void Editor::Run() {
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND) / 100.0f;
     else
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
+
+    if (Core::InputContext::GetPressed(Core::Input::T))
+      Core::Log("camera position: {}", camera.position.String());
 
     if (frame_test_acc < 500.0f) {
       frame_test_acc += timer.ElapsedMillis();

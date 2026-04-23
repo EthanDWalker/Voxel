@@ -2,6 +2,7 @@
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/info.h"
 #include "Core/Render/Vulkan/util.h"
+#include <tracy/Tracy.hpp>
 
 namespace Core {
 
@@ -38,6 +39,28 @@ void BaseVulkanImage::CreateBase(const VkImageCreateInfo &image_ci, VkImageViewC
   VK_CHECK(vkCreateImageView(VulkanContext::device, &image_view_ci, nullptr, &this->view));
 }
 
+void BaseVulkanImage::CreateBaseRef(const BaseVulkanImage &base_image, VkImageViewCreateInfo &image_view_ci) {
+  ZoneScoped;
+
+  this->format = base_image.format;
+  this->width = base_image.width;
+  this->height = base_image.height;
+  this->depth = base_image.depth;
+  this->usage = base_image.usage;
+  this->allocation = base_image.allocation;
+  this->obj = base_image.obj;
+
+  image_view_ci.image = obj;
+  VK_CHECK(vkCreateImageView(VulkanContext::device, &image_view_ci, nullptr, &this->view));
+}
+
+void BaseVulkanImage::DestroyBaseRef() {
+  ZoneScoped;
+  vkDestroyImageView(VulkanContext::device, view, nullptr);
+}
+
+// ----------PLANAR----------
+
 VulkanImage<ImageType::Planar>::~VulkanImage<ImageType::Planar>() {
   ZoneScoped;
   DestroyBase();
@@ -58,6 +81,58 @@ void VulkanImage<ImageType::Planar>::Create(Vec2u32 extent, VkFormat format, VkI
   VkImageViewCreateInfo image_view_ci = ImageViewCI(format, obj, mip_levels);
   CreateBase(image_ci, image_view_ci);
 }
+
+// ----------VOLUME----------
+
+void VulkanImage<ImageType::Volume>::Create(Vec3u32 extent, VkFormat format, VkImageUsageFlags usage_flags,
+                                            bool referenced, bool mipmapped) {
+  ZoneScoped;
+  const u32 mip_levels = mipmapped ? CalculateMipLevels(extent) : 1;
+  VkImageCreateInfo image_ci = ImageCI(format, usage_flags, extent, mip_levels);
+  if (referenced) {
+    image_ci.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+  }
+  VkImageViewCreateInfo image_view_ci = ImageViewCI(format, obj, mip_levels);
+  image_view_ci.viewType = VK_IMAGE_VIEW_TYPE_3D;
+  CreateBase(image_ci, image_view_ci);
+}
+
+void VulkanImage<ImageType::Volume>::Recreate(Vec3u32 extent, VkFormat format, VkImageUsageFlags usage_flags,
+                                              bool referenced, bool mipmapped) {
+  ZoneScoped;
+  DestroyBase();
+  Create(extent, format, usage_flags, mipmapped);
+}
+
+VulkanImage<ImageType::Volume>::~VulkanImage<ImageType::Volume>() {
+  ZoneScoped;
+  DestroyBase();
+}
+
+// ----------VOLUME REF--------
+
+void VulkanImage<ImageType::VolumeRef>::Create(const VulkanImage<ImageType::Volume> &image, VkFormat format,
+                                               bool mipmapped) {
+  ZoneScoped;
+  VkImageViewCreateInfo image_view_ci =
+      ImageViewCI(format, image.obj, mipmapped ? CalculateMipLevels(image.GetVec3u32()) : 1);
+  image_view_ci.viewType = VK_IMAGE_VIEW_TYPE_3D;
+  CreateBaseRef(image, image_view_ci);
+}
+
+void VulkanImage<ImageType::VolumeRef>::Recreate(const VulkanImage<ImageType::Volume> &image, VkFormat format,
+                                                 bool mipmapped) {
+  ZoneScoped;
+  DestroyBaseRef();
+  Create(image, format, mipmapped);
+}
+
+VulkanImage<ImageType::VolumeRef>::~VulkanImage<ImageType::VolumeRef>() {
+  ZoneScoped;
+  DestroyBaseRef();
+}
+
+// ----------CUBE MAP----------
 
 void VulkanImage<ImageType::CubeMap>::Recreate(u32 side_length, VkFormat format,
                                                VkImageUsageFlags usage_flags, bool mipmapped) {
