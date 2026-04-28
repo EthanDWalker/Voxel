@@ -6,11 +6,15 @@
 #include "Core/Render/Vulkan/pipeline.h"
 #include "Core/Render/Vulkan/submission_pass.h"
 #include "Core/Render/Vulkan/swapchain.h"
+#include "Core/Render/types.h"
 #include "sparse_voxel_tree.h"
+#include <functional>
+#include <mutex>
 
 namespace Core {
 struct Spec {
   u32 max_directional_lights = 10;
+  u32 max_raycasts = 10;
 };
 
 const u32 BEAM_PREPASS_SCALE = 4;
@@ -25,9 +29,8 @@ struct RenderContext {
 
   VulkanPipeline<PipelineType::Compute> main_pipeline;
   VulkanPipeline<PipelineType::Compute> beam_prepass_pipeline;
-
-  VulkanPipeline<PipelineType::Compute> calculate_radiance_pipeline;
-  VulkanPipeline<PipelineType::Compute> mip_map_radiance_pipeline;
+  VulkanPipeline<PipelineType::Compute> clear_volume_pipeline;
+  VulkanPipeline<PipelineType::Compute> raycast_pipeline;
 
   VulkanDescriptor image_descriptor;
   VulkanDescriptor camera_descriptor;
@@ -42,6 +45,17 @@ struct RenderContext {
   VulkanSubPass<SubPassType::Compute> beam_pass;
   VulkanSubPass<SubPassType::Compute> main_draw_pass;
   VulkanSubPass<SubPassType::Transfer> upload_pass;
+
+  std::vector<VoxelVolume> clear_volume_cmds;
+  std::mutex clear_volume_cmd_mutex;
+
+  VulkanBuffer raycast_staging_buffer;
+  VulkanBuffer raycast_cmds_buffer;
+  VulkanBuffer raycast_results_buffer;
+  VulkanDescriptor raycast_descriptor;
+  std::vector<Raycast> raycast_cmds;
+  std::vector<std::function<void(RaycastResult)>> raycast_callbacks;
+  std::mutex raycast_mutex;
 
   void Create(const Spec &spec);
   void CreatePipelines();

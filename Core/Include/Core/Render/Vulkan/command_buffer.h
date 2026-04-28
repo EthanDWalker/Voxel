@@ -32,9 +32,8 @@ struct VulkanCommandBuffer {
   void Begin();
   void End();
 
-  void BeginRendering(const std::vector<BaseVulkanImage *> &attachment_images,
-                      BaseVulkanImage *depth_image, Vec2u32 extent,
-                      VkAttachmentLoadOp depth_load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+  void BeginRendering(const std::vector<BaseVulkanImage *> &attachment_images, BaseVulkanImage *depth_image,
+                      Vec2u32 extent, VkAttachmentLoadOp depth_load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
                       VkAttachmentStoreOp depth_store_op = VK_ATTACHMENT_STORE_OP_STORE);
   void BeginMultiRendering(const u32 viewport_count, const u32 layer_count,
                            const std::vector<BaseVulkanImage *> &attachment_images,
@@ -43,23 +42,23 @@ struct VulkanCommandBuffer {
                            VkAttachmentStoreOp depth_store_op = VK_ATTACHMENT_STORE_OP_STORE);
   void EndRendering();
 
+  void ClearPushConstants();
   void Dispatch(Vec3u32 groups);
   void BindIndexBuffer(const VulkanBuffer &index_buffer);
   void BindDescriptors(const std::vector<VkDescriptorSet> &descriptors);
   void PushConstants(VkShaderStageFlagBits stages, u32 size, const void *data);
-  void Draw(u32 vertex_count, u32 instance_count = 1, u32 vertex_offset = 0,
-            u32 instance_offset = 0);
-  void DrawIndexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0,
-                   i32 vertex_offset = 0, u32 first_instance = 0);
+  void Draw(u32 vertex_count, u32 instance_count = 1, u32 vertex_offset = 0, u32 instance_offset = 0);
+  void DrawIndexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0, i32 vertex_offset = 0,
+                   u32 first_instance = 0);
 
-  void UploadBufferToBuffer(const VulkanBuffer &src_buffer, const VulkanBuffer &dst_buffer,
-                            const u64 size, const u64 src_offset = 0, const u64 dst_offset = 0);
-  void FillBuffer(const VulkanBuffer &buffer, const u64 fill_size, const u32 data,
-                  const u32 offset = 0);
-  void UploadBufferToImage(const VulkanBuffer &buffer, const BaseVulkanImage &image,
-                           const u32 src_offset = 0, const u32 mip_level = 0);
-  void Blit(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image,
-            const u32 src_mip_level, const u32 dst_mip_level);
+  void UploadBufferToBuffer(const VulkanBuffer &src_buffer, const VulkanBuffer &dst_buffer, const u64 size,
+                            const u64 src_offset = 0, const u64 dst_offset = 0);
+  void FillBuffer(const VulkanBuffer &buffer, const u64 fill_size, const u32 data, const u32 offset = 0);
+  void ClearImage(const BaseVulkanImage &image);
+  void UploadBufferToImage(const VulkanBuffer &buffer, const BaseVulkanImage &image, const u32 src_offset = 0,
+                           const u32 mip_level = 0);
+  void Blit(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image, const u32 src_mip_level,
+            const u32 dst_mip_level);
 
   template <SubPassType T> void BindSubPass(const VulkanSubPass<T> &sub_pass) {
     VkDependencyInfo dependency_info{};

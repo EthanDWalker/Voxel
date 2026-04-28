@@ -2,6 +2,7 @@
 #include "Core/Render/Vulkan/command_buffer.h"
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/descriptors.h"
+#include "Core/Render/Vulkan/pipeline.h"
 #include "Core/Render/Vulkan/sampler.h"
 #include "Core/Render/Vulkan/submission_pass.h"
 #include "Core/Render/types.h"
@@ -21,8 +22,7 @@ SparseVoxelTree::SparseVoxelTree() {
   ZoneScoped;
   constexpr bool host = true;
 
-  texture_sampler.Create(SamplerFilter::Nearest, SamplerFilter::Nearest);
-  radiance_sampler.Create(SamplerFilter::Linear, SamplerFilter::Linear);
+  texture_sampler.Create(SamplerFilter::Linear, SamplerFilter::Nearest);
 
   tree_header_buffer.Create(sizeof(TreeHeader),
                             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
@@ -37,7 +37,6 @@ SparseVoxelTree::SparseVoxelTree() {
     ((BranchNode *)empty_page_host_buffer.address)[i] = {
         .child_mask = 0,
         .child_ptr = SENTINAL,
-        .child_radiance_ptr = SENTINAL,
     };
   }
 
@@ -51,14 +50,9 @@ SparseVoxelTree::SparseVoxelTree() {
   DescriptorBuilder::Bind<DeviceResourceType::RWStorageImage>(nullptr, MAX_PAGES); // rw radiance
   DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr, MAX_PAGES);   // sampled radiance bricks
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&tree_header_buffer);
-  DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&radiance_sampler);
   DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS, &tree_descriptor);
 
   TreeHeader header{};
-  header._min_bound = MIN_BOUND;
-  header._max_bound = MAX_BOUND;
-  header._max_voxelize_depth = MAX_VOXLELIZE_DEPTH;
-  header._page_size_exp = PAGE_SIZE_EXP;
   header.level_voxel_count[0] = 64;
 
   for (u32 i = 0; i < MAX_VOXLELIZE_DEPTH - 1; i++) {
@@ -83,17 +77,6 @@ SparseVoxelTree::SparseVoxelTree() {
       ->Create(sizeof(LeafNode) * PAGE_SIZE,
                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HOST);
   tree_descriptor.Update<DeviceResourceType::Buffer>(TREE_LEAF_BUFFER_BINDING, leaf_pages.back().get(), 0);
-
-  radiance_pages.emplace_back(std::make_unique<VulkanImage<ImageType::Volume>>())
-      ->Create(Vec3u32(6) * Vec3u32(Vec2u32(1 << RADIANCE_PAGE_SIZE_EXP), 1), VK_FORMAT_R8G8B8A8_UNORM,
-               VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, /*referenced=*/true);
-  atomic_radiance_page_refs.emplace_back(std::make_unique<VulkanImage<ImageType::VolumeRef>>())
-      ->Create(*radiance_pages.back(), VK_FORMAT_R32_UINT);
-  tree_descriptor.Update<DeviceResourceType::RWStorageImage>(TREE_RADIANCE_STORAGE_BUFFER_BINDING,
-                                                             atomic_radiance_page_refs.back().get(),
-                                                             atomic_radiance_page_refs.size() - 1);
-  tree_descriptor.Update<DeviceResourceType::SampledImage>(
-      TREE_RADIANCE_SAMPLED_BUFFER_BINDING, radiance_pages.back().get(), radiance_pages.size() - 1);
 
   memcpy(tree_header_host_buffer.address, &header, sizeof(TreeHeader));
 
@@ -146,6 +129,14 @@ SparseVoxelTree::SparseVoxelTree() {
                                 std::filesystem::path(SHADER_DIR) / "voxelize.slang");
     PipelineBuildManager::Build(pipeline_builder, allocate_child_mask_pipeline);
   }
+
+  /*{
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    pipeline_builder.AddDescriptor(tree_descriptor);
+    pipeline_builder.AddPushConstantRange(sizeof(u32));
+    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "mip_map.slang");
+    PipelineBuildManager::Build(pipeline_builder, mip_map_pipeline);
+  }*/
 }
 
 void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
@@ -247,6 +238,7 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
           allocate_pass.AddDependency<DeviceResourceType::Buffer>(vertex_buffer);
           allocate_pass.AddDependency<DeviceResourceType::RWBuffer>(tree_header_buffer);
           for (u32 i = 0; i < pages.size(); i++) {
+            allocate_pass.ReserveBufferDependencies(pages[i].size());
             for (u32 j = 0; j < pages[i].size(); j++) {
               allocate_pass.AddDependency<DeviceResourceType::RWBuffer>(*pages[i][j]);
             }
@@ -287,22 +279,6 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
     tree_descriptor.Update<DeviceResourceType::Buffer>(TREE_LEAF_BUFFER_BINDING, leaf_pages.back().get(), i);
   }
 
-  const u32 radiance_page_offset = radiance_pages.size();
-  const u32 new_radiance_page_offset = header->radiance_brick_count >> (RADIANCE_PAGE_SIZE_EXP * 2);
-
-  for (u32 i = radiance_page_offset; i <= new_radiance_page_offset; i++) {
-    radiance_pages.emplace_back(std::make_unique<VulkanImage<ImageType::Volume>>())
-        ->Create(Vec3u32(6) * Vec3u32(Vec2u32(1 << RADIANCE_PAGE_SIZE_EXP), 1), VK_FORMAT_R8G8B8A8_UNORM,
-                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, /*referenced=*/true);
-    atomic_radiance_page_refs.emplace_back(std::make_unique<VulkanImage<ImageType::VolumeRef>>())
-        ->Create(*radiance_pages.back(), VK_FORMAT_R32_UINT);
-    tree_descriptor.Update<DeviceResourceType::RWStorageImage>(TREE_RADIANCE_STORAGE_BUFFER_BINDING,
-                                                               atomic_radiance_page_refs.back().get(),
-                                                               atomic_radiance_page_refs.size() - 1);
-    tree_descriptor.Update<DeviceResourceType::SampledImage>(
-        TREE_RADIANCE_SAMPLED_BUFFER_BINDING, radiance_pages.back().get(), radiance_pages.size() - 1);
-  }
-
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     {
       VulkanSubPass<SubPassType::Transfer> transfer_pass;
@@ -321,15 +297,15 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
       child_mask_pass.AddDependency<DeviceResourceType::Buffer>(vertex_buffer);
       child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(tree_header_buffer);
       for (u32 i = 0; i < pages.size(); i++) {
+        child_mask_pass.ReserveBufferDependencies(pages[i].size());
         for (u32 j = 0; j < pages[i].size(); j++) {
           child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(*pages[i][j]);
         }
       }
+
+      child_mask_pass.ReserveBufferDependencies(leaf_pages.size());
       for (u32 i = 0; i < leaf_pages.size(); i++) {
         child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(*leaf_pages[i]);
-      }
-      for (u32 i = 0; i < radiance_pages.size(); i++) {
-        child_mask_pass.AddDependency<DeviceResourceType::RWStorageImage>(*radiance_pages[i]);
       }
 
       cmd.BindSubPass(child_mask_pass);
@@ -344,18 +320,49 @@ void SparseVoxelTree::VoxelizeMesh(const MeshData &mesh_data) {
       cmd.EndRendering();
     }
 
+    /*{
+      for (i32 i = MAX_VOXLELIZE_DEPTH - 2; i >= 0; i--) {
+        VulkanSubPass<SubPassType::Compute> mip_map_pass;
+
+        if (i == MAX_VOXLELIZE_DEPTH - 2) {
+          mip_map_pass.ReserveBufferDependencies(leaf_pages.size());
+
+          for (u32 j = 0; j < leaf_pages.size(); j++) {
+            mip_map_pass.AddDependency<DeviceResourceType::Buffer>(*leaf_pages[j]);
+          }
+        } else {
+          mip_map_pass.ReserveBufferDependencies(pages[i + 1].size());
+
+          for (u32 j = 0; j < pages[i + 1].size(); j++) {
+            mip_map_pass.AddDependency<DeviceResourceType::Buffer>(*pages[i + 1][j]);
+          }
+        }
+
+        mip_map_pass.ReserveBufferDependencies(pages[i].size());
+        for (u32 j = 0; j < pages[i].size(); j++) {
+          mip_map_pass.AddDependency<DeviceResourceType::RWBuffer>(*pages[i][j]);
+        }
+
+        cmd.BindSubPass(mip_map_pass);
+
+        cmd.BindPipeline(mip_map_pipeline);
+        cmd.BindDescriptors({tree_descriptor});
+        cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(u32), &i);
+        cmd.Dispatch(Vec3u32(header->level_voxel_count[i] / 64 + 1, 1, 1));
+      }
+    }*/
+
     {
       VulkanSubPass<SubPassType::Compute> transition;
       for (u32 i = 0; i < pages.size(); i++) {
+        transition.ReserveBufferDependencies(pages[i].size());
         for (u32 j = 0; j < pages[i].size(); j++) {
           transition.AddDependency<DeviceResourceType::Buffer>(*pages[i][j]);
         }
       }
+      transition.ReserveBufferDependencies(leaf_pages.size());
       for (u32 i = 0; i < leaf_pages.size(); i++) {
         transition.AddDependency<DeviceResourceType::Buffer>(*leaf_pages[i]);
-      }
-      for (u32 i = 0; i < radiance_pages.size(); i++) {
-        transition.AddDependency<DeviceResourceType::SampledImage>(*radiance_pages[i]);
       }
 
       cmd.BindSubPass(transition);

@@ -30,5 +30,6 @@ void FMain(const VoxelizeInfo info) {
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
   const float4 color = albedo_texture.SampleLevel(sampler, info.uv, 0.0f);
-  voxel_tree_leaf[page_index][page_offset].color.max(PackRGBA8(color));
+  voxel_tree_leaf[page_index][page_offset].color.store(PackRGBA8(color));
+  voxel_tree_leaf[page_index][page_offset].normal.store(PackNormal(info.normal));
 }

@@ -59,7 +59,7 @@ void BaseVulkanImage::DestroyBaseRef() {
   vkDestroyImageView(VulkanContext::device, view, nullptr);
 }
 
-// ----------PLANAR----------
+/*----------PLANAR----------*/
 
 VulkanImage<ImageType::Planar>::~VulkanImage<ImageType::Planar>() {
   ZoneScoped;
@@ -67,19 +67,44 @@ VulkanImage<ImageType::Planar>::~VulkanImage<ImageType::Planar>() {
 }
 
 void VulkanImage<ImageType::Planar>::Recreate(Vec2u32 extent, VkFormat format, VkImageUsageFlags usage_flags,
-                                              bool mipmapped) {
+                                              bool referenced, bool mipmapped) {
   ZoneScoped;
   DestroyBase();
-  Create(extent, format, usage_flags, mipmapped);
+  Create(extent, format, usage_flags, referenced, mipmapped);
 }
 
 void VulkanImage<ImageType::Planar>::Create(Vec2u32 extent, VkFormat format, VkImageUsageFlags usage_flags,
-                                            bool mipmapped) {
+                                            bool referenced, bool mipmapped) {
   ZoneScoped;
   const u32 mip_levels = mipmapped ? CalculateMipLevels(extent) : 1;
   VkImageCreateInfo image_ci = ImageCI(format, usage_flags, Vec3u32(extent, 1), mip_levels);
+  if (referenced) {
+    image_ci.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+  }
   VkImageViewCreateInfo image_view_ci = ImageViewCI(format, obj, mip_levels);
   CreateBase(image_ci, image_view_ci);
+}
+
+/*----------PLANAR REF------*/
+
+void VulkanImage<ImageType::PlanarRef>::Create(const VulkanImage<ImageType::Planar> &image, VkFormat format,
+                                               bool mipmapped) {
+  ZoneScoped;
+  VkImageViewCreateInfo image_view_ci =
+      ImageViewCI(format, image.obj, mipmapped ? CalculateMipLevels(image.GetVec3u32()) : 1);
+  CreateBaseRef(image, image_view_ci);
+}
+
+void VulkanImage<ImageType::PlanarRef>::Recreate(const VulkanImage<ImageType::Planar> &image, VkFormat format,
+                                                 bool mipmapped) {
+  ZoneScoped;
+  DestroyBaseRef();
+  Create(image, format, mipmapped);
+}
+
+VulkanImage<ImageType::PlanarRef>::~VulkanImage<ImageType::PlanarRef>() {
+  ZoneScoped;
+  DestroyBaseRef();
 }
 
 // ----------VOLUME----------
@@ -101,7 +126,7 @@ void VulkanImage<ImageType::Volume>::Recreate(Vec3u32 extent, VkFormat format, V
                                               bool referenced, bool mipmapped) {
   ZoneScoped;
   DestroyBase();
-  Create(extent, format, usage_flags, mipmapped);
+  Create(extent, format, usage_flags, referenced, mipmapped);
 }
 
 VulkanImage<ImageType::Volume>::~VulkanImage<ImageType::Volume>() {

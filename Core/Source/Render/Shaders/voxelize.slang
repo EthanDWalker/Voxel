@@ -14,8 +14,9 @@ Vertex VMain(const uint32_t vertex_id: SV_VertexID) {
 [shader("geometry")]
 [maxvertexcount(3)]
 void GMain(triangle Vertex input[3], inout TriangleStream<VoxelizeInfo> output_stream) {
-  const float3 abs_normal =
-      abs(cross(input[1].position - input[0].position, input[2].position - input[0].position));
+  const float3 normal =
+      normalize(cross(input[1].position - input[0].position, input[2].position - input[0].position));
+  const float3 abs_normal = abs(normal);
 
   const Axis projection_axis = (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) ? Axis::X
                                : (abs_normal.y > abs_normal.z)                              ? Axis::Y
@@ -23,13 +24,14 @@ void GMain(triangle Vertex input[3], inout TriangleStream<VoxelizeInfo> output_s
 
   for (uint32_t i = 0; i < 3; i++) {
     VoxelizeInfo voxelize_info;
-    const float3 pos = (input[i].position / voxel_tree_header.max_bound);
+    const float3 pos = (input[i].position / (box_size / 2.0f));
     voxelize_info.position = float4((projection_axis == Axis::X)   ? pos.yz
                                     : (projection_axis == Axis::Y) ? pos.xz
                                                                    : pos.xy,
                                     1.0f, 1.0f);
     voxelize_info.uv = float16_t2(input[i].uv.yx);
     voxelize_info.world_position = input[i].position;
+    voxelize_info.normal = normal;
     output_stream.Append(voxelize_info);
   }
   output_stream.RestartStrip();

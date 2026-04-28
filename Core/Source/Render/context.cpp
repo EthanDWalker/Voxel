@@ -39,19 +39,19 @@ void RenderContext::CreatePipelines() {
   }
 
   {
-    auto pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
     pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
-    pipeline_builder.AddDescriptor(light_descriptor);
-    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "calculate_radiance.slang");
-    pipeline_builder.Build(calculate_radiance_pipeline);
+    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "cmd_clear_volume.slang");
+    pipeline_builder.AddPushConstantRange(sizeof(VoxelVolume));
+    PipelineBuildManager::Build(pipeline_builder, clear_volume_pipeline);
   }
 
   {
-    auto pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
     pipeline_builder.AddDescriptor(voxel_tree.tree_descriptor);
-    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "mip_map_radiance.slang");
-    pipeline_builder.AddPushConstantRange(sizeof(u32));
-    pipeline_builder.Build(mip_map_radiance_pipeline);
+    pipeline_builder.AddDescriptor(raycast_descriptor);
+    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "cmd_raycast.slang");
+    PipelineBuildManager::Build(pipeline_builder, raycast_pipeline);
   }
 }
 
@@ -61,7 +61,10 @@ void RenderContext::Create(const Spec &spec) {
   current_spec = spec;
 
   main_image.Create(window_size, VK_FORMAT_B8G8R8A8_UNORM,
-                    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+                    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                        VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                    /*referenced=*/true);
+
   beam_prepass_image.Create(window_size / BEAM_PREPASS_SCALE, VK_FORMAT_D32_SFLOAT,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
@@ -73,6 +76,14 @@ void RenderContext::Create(const Spec &spec) {
   camera_buffer.Create(sizeof(Camera::UBO),
                        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
+  raycast_results_buffer.Create(sizeof(RaycastResult) * spec.max_raycasts,
+                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+  raycast_cmds_buffer.Create(sizeof(Raycast) * spec.max_raycasts,
+                             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  raycast_staging_buffer.Create(Max(sizeof(RaycastResult), sizeof(Raycast)) * spec.max_raycasts,
+                                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                /*host=*/true);
+
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&camera_buffer);
   DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &camera_descriptor);
 
@@ -82,6 +93,10 @@ void RenderContext::Create(const Spec &spec) {
 
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&directional_light_buffer);
   DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &light_descriptor);
+
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&raycast_cmds_buffer);
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&raycast_results_buffer);
+  DescriptorBuilder::Build(VK_SHADER_STAGE_COMPUTE_BIT, &raycast_descriptor);
 
   frame_staging_buffer.Create(sizeof(Camera::UBO), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, /*host=*/true);
 

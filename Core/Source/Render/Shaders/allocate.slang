@@ -26,8 +26,6 @@ void Allocate(const uint32_t3 index, const uint32_t depth) {
 
   if (voxel_tree[page_index + page_level_offset][page_offset].child_ptr.compareExchange(SENTINAL, 0) ==
       SENTINAL) {
-    voxel_tree[page_index + page_level_offset][page_offset].child_radiance_ptr =
-        voxel_tree_header.AllocateRadianceBrick();
     if (depth == voxel_tree_header.max_depth - 1) {
       voxel_tree[page_index + page_level_offset][page_offset].child_ptr =
           voxel_tree_header.AllocateLeafVoxels(64);

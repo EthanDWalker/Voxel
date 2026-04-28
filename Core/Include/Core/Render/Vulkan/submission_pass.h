@@ -48,6 +48,10 @@ struct BaseVulkanSubPass {
                                                                                  : VK_IMAGE_ASPECT_COLOR_BIT);
     return barrier;
   }
+
+  void ReserveBufferDependencies(const u32 count) { buffer_barriers.reserve(buffer_barriers.size() + count); }
+
+  void ReserveImageDependencies(const u32 count) { image_barriers.reserve(image_barriers.size() + count); }
 };
 
 template <> struct VulkanSubPass<SubPassType::Compute> : BaseVulkanSubPass {

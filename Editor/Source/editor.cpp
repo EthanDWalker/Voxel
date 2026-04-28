@@ -37,12 +37,7 @@ void Editor::StartUp() {
   }
   Core::Log("leaf count {} (pages {})", tree_header->leaf_voxel_count, tree.leaf_pages.size());
 
-  Core::Log("radiance brick count {} (pages {})", tree_header->radiance_brick_count,
-            tree.radiance_pages.size());
-
   Core::AddDirectionalLight(dir_light);
-
-  Core::CalculateRadiance();
 }
 
 void Editor::Run() {
@@ -99,6 +94,31 @@ void Editor::Run() {
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND) / 100.0f;
     else
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
+
+    if (Core::InputContext::GetHeld(Core::Input::C))
+      Core::ClearVolume(Core::VoxelVolume{.min = camera.position - 50.0f, .max = camera.position + 50.0f});
+
+    if (Core::InputContext::GetPressed(Core::Input::MOUSE_LEFT)) {
+      Core::Raycast query{};
+      query.origin = camera.position;
+
+      const Vec2f32 mouse_pos = Vec2f32::From(Core::InputContext::mouse_pos);
+
+      const Vec4f32 view =
+          PerspectiveReverseZInverse(camera.z_near, 1000.0f, camera.fov_y, camera.aspect_ratio) *
+          Vec4f32(mouse_pos, 1.0f, 1.0f);
+
+      query.dir = Vec4f32::DownCast<Vec3f32>(
+          LookAtInverse(camera.position, camera.position + camera.front, camera.up) *
+          Vec4f32(Normalize(Vec4f32::DownCast<Vec3f32>(view)), 0.0f));
+
+      Core::QueueRaycast(query, [&](const Core::RaycastResult &result) {
+        Core::ClearVolume(
+            Core::VoxelVolume{.min = result.hit_position - 50.0f, .max = result.hit_position + 50.0f});
+      });
+
+      Core::FlushRaycasts();
+    }
 
     if (Core::InputContext::GetPressed(Core::Input::T))
       Core::Log("camera position: {}", camera.position.String());

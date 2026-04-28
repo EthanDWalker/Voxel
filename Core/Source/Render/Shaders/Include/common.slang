@@ -50,24 +50,28 @@ struct CountedBuffer<T> {
   }
 };
 
-// stored as alpha blue green red (ABGR)
+uint32_t SumComponents(const uint32_t3 v) { return v.x + v.y + v.z; }
+uint32_t SumComponents(const uint32_t4 v) { return v.x + v.y + v.z + v.w; }
+
 uint32_t PackRGBA8(const float4 data) {
-  const float ratio = 255.0f;
-  return dot(1, uint32_t4(data * ratio) << uint32_t4(0, 8, 16, 24));
+  static const float ratio = float((1 << 8) - 1);
+  return SumComponents(uint32_t4(data * ratio) << uint32_t4(0, 8, 16, 24));
 }
 
 float4 UnpackRGBA8(const uint32_t data) {
-  const float ratio = 1.0f / 255.0f;
-  /*
+  static const float ratio = 1.0f / float((1 << 8) - 1);
+  return ((uint32_t4(data) >> uint32_t4(0, 8, 16, 24)) & uint32_t4(0xFF)) * ratio;
+}
 
-  float4 value;
+uint32_t PackNormal(const float3 normal) {
+  static const float ratio = float((1 << 10) - 1);
+  normal * 0.5f + 0.5f;
+  return SumComponents(uint32_t3((normal * 0.5f + 0.5f) * ratio) << uint32_t3(0, 10, 20));
+}
 
-  value.r = ((data >> 0) & 0xFF) * ratio;
-  value.g = ((data >> 8) & 0xFF) * ratio;
-  value.b = ((data >> 16) & 0xFF) * ratio;
-  value.a = ((data >> 24) & 0xFF) * ratio;
-  */
-  return (uint32_t4(data) >> uint32_t4(0, 8, 16, 24) & uint32_t4(0xFF)) * ratio;
+float3 UnpackNormal(const uint32_t normal_data) {
+  static const float ratio = 1.0f / float((1 << 10) - 1);
+  return ((uint32_t3(normal_data) >> uint32_t3(0, 10, 20)) & uint32_t3(0x3FF)) * ratio * 2.0f - 1.0f;
 }
 
 bool RayAABBIntersect(const float3 ray_dir, const float3 ray_origin, const float3 bounds_min,

@@ -6,7 +6,6 @@
 #include "Core/Render/context.h"
 #include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
-#include "Core/Util/timer.h"
 #include "Core/window.h"
 #include <cstring>
 #include <tracy/Tracy.hpp>
@@ -33,16 +32,6 @@ void EndFrame(bool &resize) {
   }
 }
 
-void CalculateRadiance() {
-  ZoneScoped;
-  SCOPED_TIMER("radiance calculation")
-  VulkanContext::Submit([](VulkanCommandBuffer &cmd) {
-    cmd.BindPipeline(render_context->calculate_radiance_pipeline);
-    cmd.BindDescriptors({render_context->voxel_tree.tree_descriptor, render_context->light_descriptor});
-    cmd.Dispatch(Vec3u32(Vec2u32((1 << (render_context->voxel_tree.MAX_VOXLELIZE_DEPTH * 2)) / 8 + 1), 1));
-  });
-}
-
 void Frame(Camera &camera) {
   ZoneScoped;
   camera.Update();
@@ -50,6 +39,10 @@ void Frame(Camera &camera) {
   VulkanCommandBuffer &cmd = render_context->swapchain.GetActiveCommandBuffer();
 
   {
+    VulkanSubPass<SubPassType::Transfer> upload_pass;
+    upload_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->main_image);
+
+    cmd.BindSubPass(upload_pass);
     cmd.BindSubPass(render_context->upload_pass);
 
     u64 offset = 0;
@@ -58,7 +51,25 @@ void Frame(Camera &camera) {
     cmd.UploadBufferToBuffer(render_context->frame_staging_buffer, render_context->camera_buffer,
                              sizeof(Camera::UBO), offset);
 
+    cmd.ClearImage(render_context->main_image);
+
     offset += sizeof(Camera::UBO);
+  }
+
+  {
+    cmd.BindPipeline(render_context->clear_volume_pipeline);
+    cmd.BindDescriptors({render_context->voxel_tree.tree_descriptor});
+
+    for (u32 i = 0; i < render_context->clear_volume_cmds.size(); i++) {
+      cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(VoxelVolume),
+                        &render_context->clear_volume_cmds[i]);
+      cmd.Dispatch(VecTypeCast<u32>(
+          Ceil((render_context->clear_volume_cmds[i].max - render_context->clear_volume_cmds[i].min) /
+               render_context->voxel_tree.VOXEL_SIZE)));
+      cmd.ClearPushConstants();
+    }
+
+    render_context->clear_volume_cmds.clear();
   }
 
   {
@@ -106,7 +117,7 @@ void Resize(Vec2u32 extent) {
   WaitIdle();
 
   render_context->main_image.Recreate(extent, render_context->main_image.format,
-                                      render_context->main_image.usage);
+                                      render_context->main_image.usage, /*referenced=*/true);
   render_context->image_descriptor.Update<DeviceResourceType::RWStorageImage>(0, &render_context->main_image);
 
   render_context->beam_prepass_image.Recreate(extent / BEAM_PREPASS_SCALE,

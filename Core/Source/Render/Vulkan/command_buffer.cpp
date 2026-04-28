@@ -1,4 +1,5 @@
 #include "Core/Render/Vulkan/command_buffer.h"
+#include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/image_util.h"
 #include "Core/Render/Vulkan/indirect_draw.h"
 #include "Core/Render/Vulkan/info.h"
@@ -13,6 +14,23 @@ void VulkanCommandBuffer::Begin() {
   VK_CHECK(vkBeginCommandBuffer(obj, &cmd_begin));
 }
 
+void VulkanCommandBuffer::ClearImage(const BaseVulkanImage &image) {
+  VkImageSubresourceRange range{};
+  range.baseArrayLayer = 0;
+  range.baseMipLevel = 0;
+  range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+  range.levelCount = VK_REMAINING_MIP_LEVELS;
+  range.aspectMask = IsDepthFormat(image.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+  VkClearColorValue clear_color{};
+  clear_color.uint32[0] = 0;
+  clear_color.uint32[1] = 0;
+  clear_color.uint32[2] = 0;
+  clear_color.uint32[3] = 0;
+
+  vkCmdClearColorImage(obj, image.obj, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear_color, 1, &range);
+}
+
 void VulkanCommandBuffer::End() {
   ZoneScoped;
   VK_CHECK(vkEndCommandBuffer(obj));
@@ -23,6 +41,10 @@ void VulkanCommandBuffer::PushConstants(VkShaderStageFlagBits stages, u32 size, 
   Assert(bound_pipeline_layout, "Must bind pipeline before pushing constants");
   vkCmdPushConstants(obj, *bound_pipeline_layout, stages, push_constant_offset, size, data);
   push_constant_offset += size;
+}
+
+void VulkanCommandBuffer::ClearPushConstants() {
+  push_constant_offset = 0;
 }
 
 void VulkanCommandBuffer::Dispatch(Vec3u32 groups) {

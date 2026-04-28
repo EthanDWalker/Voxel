@@ -6,27 +6,28 @@ static const uint32_t SENTINAL = 0xFFFFFFFF;
 struct BranchNode {
   uint64_t child_mask;
   uint32_t child_ptr;
-  uint32_t child_radiance_ptr;
 };
 
 struct AtomicBranchNode {
   Atomic<uint64_t> child_mask;
   Atomic<uint32_t> child_ptr;
-  Atomic<uint32_t> child_radiance_ptr;
 };
 
 struct LeafNode {
   uint32_t color;
+  uint32_t normal;
 };
 
 struct AtomicLeafNode {
   Atomic<uint32_t> color;
+  Atomic<uint32_t> normal;
 };
 
 struct VoxelizeInfo {
   float4 position : SV_Position;
   float3 world_position;
   float16_t2 uv;
+  float3 normal;
 };
 
 struct BaseTreeHeader<T>
@@ -37,8 +38,8 @@ struct BaseTreeHeader<T>
     get { return buffer.Load<float, 0>(); }
   };
 
-  property float max_bound {
-    get { return buffer.Load<float, 4>(); }
+  property uint32_t box_size_exp {
+    get { return buffer.Load<uint32_t, 4>(); }
   };
 
   property uint32_t max_depth {
@@ -48,39 +49,29 @@ struct BaseTreeHeader<T>
   property uint32_t page_size_exp {
     get { return buffer.Load<uint32_t, 12>(); }
   };
-
-  property uint32_t radiance_page_size_exp {
-    get { return buffer.Load<uint32_t, 16>(); }
-  };
 };
 
 struct RWTreeHeader : BaseTreeHeader<RWByteBuffer> {
-  const uint32_t AllocateRadianceBrick() {
-    uint32_t val;
-    buffer.data.InterlockedAdd(20, 1, val);
-    return val;
-  }
-
   const uint32_t AllocateLeafVoxels(const uint32_t amount) {
     uint32_t val;
-    buffer.data.InterlockedAdd(24, amount, val);
+    buffer.data.InterlockedAdd(16, amount, val);
     return val;
   }
 
   const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(28 + (level * sizeof(uint32_t)));
+    return buffer.data.Load<uint32_t>(20 + (level * sizeof(uint32_t)));
   }
 
   const uint32_t AllocateVoxels(const uint32_t level, const uint32_t amount) {
     uint32_t val;
-    buffer.data.InterlockedAdd(28 + ((max_depth - 1) + level) * sizeof(uint32_t), amount, val);
+    buffer.data.InterlockedAdd(20 + ((max_depth - 1) + level) * sizeof(uint32_t), amount, val);
     return val;
   }
 };
 
 struct TreeHeader : BaseTreeHeader<ByteBuffer> {
   const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(28 + (level * sizeof(uint32_t)));
+    return buffer.data.Load<uint32_t>(20 + (level * sizeof(uint32_t)));
   }
 }
 
@@ -95,8 +86,6 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {
   RWStructuredBuffer<AtomicBranchNode> voxel_tree[];
   [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
   RWStructuredBuffer<AtomicLeafNode> voxel_tree_leaf[];
-  [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
-  RWTexture3D<uint32_t> radiance_pages[];
 
 #else
 
@@ -106,8 +95,6 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {
     RWStructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
     RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
-    [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
-    RWTexture3D<uint32_t> radiance_pages[];
 
   #else
 
@@ -115,8 +102,6 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {
     StructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
     StructuredBuffer<LeafNode> voxel_tree_leaf[];
-    [[vk::binding(3, VOXEL_TREE_SET_BINDING)]]
-    Texture3D<float4> radiance_pages[];
 
   #endif
 
@@ -133,29 +118,45 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {
   TreeHeader voxel_tree_header;
 
 #endif
-
-[[vk::binding(5, VOXEL_TREE_SET_BINDING)]]
-SamplerState radiance_sampler;
 // clang-format on
 
-static const float box_size = voxel_tree_header.max_bound - voxel_tree_header.min_bound;
-static const float grid_n = 1 << (voxel_tree_header.max_depth * 2);
-static const float voxel_size = box_size / grid_n;
+vector<float, N> FloatDivideBy2ToN<let N : int>(const vector<float, N> x, const uint32_t n) {
+  return asfloat(asuint(x) - (n << 23));
+}
+
+vector<float, N> FloatMultiplyBy2ToN<let N : int>(const vector<float, N> x, const uint32_t n) {
+  return asfloat(asuint(x) + (n << 23));
+}
+
+static const float box_size = 1 << voxel_tree_header.box_size_exp;
+static const float grid_n = 1 << (voxel_tree_header.max_depth << 1);
+static const float voxel_size = FloatDivideBy2ToN(box_size, voxel_tree_header.max_depth << 1);
+static const float voxel_radius = sqrt(voxel_size * voxel_size * voxel_size * 0.5f);
 static const uint32_t initial_ptr_stack_depth = voxel_tree_header.max_depth - PTR_STACK_SIZE;
-static const float3 radiance_image_size =
-    float3(uint32_t2((1 << voxel_tree_header.radiance_page_size_exp) * 6), 6);
 static groupshared uint32_t ray_ptr_stack_mem[64][PTR_STACK_SIZE];
 static const uint32_t memory_index = spirv_asm {
         result:$$uint = OpLoad builtin(LocalInvocationIndex:uint);
     };
 
-vector<uint32_t, N> GetTreeIndex<let N : int>(vector<float, N> p) {
+vector<uint32_t, N> GetTreeIndex<let N : int>(const vector<float, N> p) {
   const vector<float, N> offset = vector<float, N>(p - voxel_tree_header.min_bound);
-  return vector<uint32_t, N>((offset / box_size) * float(grid_n));
+  // return vector<uint32_t, N>(asfloat(asuint(offset) - (voxel_tree_header.box_size_exp << 23)) *
+  // float(grid_n));
+  // clang-format off
+  return vector<uint32_t, N>(
+    asfloat(
+      (
+        asuint(offset) - (voxel_tree_header.box_size_exp << 23)
+      ) 
+        + ((voxel_tree_header.max_depth << 1) << 23)
+    )
+  );
+  // clang-format on
 }
 
 uint32_t GetLocalIndex(const uint32_t3 index, const uint32_t depth) {
-  return dot(1, (((index >> ((voxel_tree_header.max_depth - 1) - depth) * 2)) & 0x3) << uint32_t3(0, 2, 4));
+  return SumComponents((((index >> (((voxel_tree_header.max_depth - 1) - depth) << 1))) & 0x3)
+                       << uint32_t3(0, 2, 4));
 }
 
 uint32_t3 GetLocalOffset(const uint32_t local_index) {
@@ -163,19 +164,38 @@ uint32_t3 GetLocalOffset(const uint32_t local_index) {
 }
 
 uint32_t3 GetLocalOffset(const uint32_t3 index, const uint32_t depth) {
-  return (index >> ((voxel_tree_header.max_depth - 1) - depth) * 2) & 0x3;
+  return (index >> (((voxel_tree_header.max_depth - 1) - depth) << 1)) & 0x3;
 }
 
-void GetRadianceImagePixelOffset(const uint32_t radiance_ptr, out uint32_t page_index,
-                                 out uint32_t3 image_pixel_offset) {
-  page_index = radiance_ptr >> (voxel_tree_header.radiance_page_size_exp * 2);
-  const uint32_t radiance_page_offset =
-      radiance_ptr - (page_index << (voxel_tree_header.radiance_page_size_exp * 2));
+void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout BranchNode node,
+                              inout bool is_empty, inout uint32_t local_index, const uint32_t3 index,
+                              const uint32_t max_depth) {
+  for (;; level++) {
+    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-  image_pixel_offset.x = radiance_page_offset % (1 << voxel_tree_header.radiance_page_size_exp);
-  image_pixel_offset.y = radiance_page_offset >> voxel_tree_header.radiance_page_size_exp;
-  image_pixel_offset.z = 0;
-  image_pixel_offset *= 6;
+#ifdef VOXEL_TREE_ATOMIC
+    node.child_ptr = voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level - 1)][page_offset]
+                         .child_ptr.load();
+    node.child_mask = voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level - 1)][page_offset]
+                          .child_mask.load();
+#else
+    node = voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level - 1)][page_offset];
+#endif
+
+    local_index = GetLocalIndex(index, level);
+
+    is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
+
+    if (level >= initial_ptr_stack_depth) {
+      ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth] = ptr;
+    }
+
+    if (is_empty || level == (max_depth - 1))
+      break;
+
+    ptr = node.child_ptr + local_index;
+  }
 }
 
 #ifndef VOXEL_TREE_ATOMIC
@@ -183,24 +203,52 @@ void GetRadianceImagePixelOffset(const uint32_t radiance_ptr, out uint32_t page_
 struct RaycastResult {
   float4 hit_color;
   float3 hit_position;
-  bool hit;
-  float3 hit_normal;
-  bool error;
-  uint32_t3 tree_index;
-  float t;
   uint32_t iterations;
+  float3 hit_normal;
+  float t;
+  uint32_t3 hit_tree_index;
+  bool error;
+  bool hit;
 };
 
-void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) {
+float3 StepTreeRay(const float3 ray_dir_step, const float3 ray_dir, const float3 inv_ray_dir,
+                   const float3 voxel_step, const float3 position, const uint32_t3 index,
+                   const uint64_t child_mask, const uint32_t local_index, const uint32_t level,
+                   inout float t) {
+  const uint32_t level_shift = ((voxel_tree_header.max_depth - 1) - level) * 2 +
+                               uint32_t((child_mask >> (local_index & 0b101010) & 0x00330033) == 0);
+  const float scale = (1 << level_shift) * voxel_size;
+
+  const uint32_t3 level_index = index >> level_shift;
+  const float3 voxel_min_bound = voxel_tree_header.min_bound + level_index * scale;
+  const float3 intersect_pos = voxel_min_bound + ray_dir_step * scale;
+
+  const float3 t_max = (intersect_pos - position) * inv_ray_dir;
+
+  const float3 mask = step(t_max, min(t_max.yzx, t_max.zxy));
+
+  const float3 neighbor_min_bound = voxel_min_bound + (voxel_step * scale * mask);
+  const float3 neighbor_max_bound = neighbor_min_bound + scale;
+
+  const float delta_t = dot(mask, t_max);
+  t += delta_t;
+
+  const float voxel_clamp_epsilon = 1e-3f;
+  return clamp(position + delta_t * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
+               neighbor_max_bound - voxel_clamp_epsilon);
+}
+
+void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, const float t_max = 1e10f) {
   result.hit = false;
   result.error = false;
-  result.t = 0.0f;
   result.hit_color = 0.0f;
+  result.t = 0.0f;
   result.iterations = 0;
   ray_dir += 1e-4f;
   float ray_t_min, ray_t_max;
-  const bool intersect = RayAABBIntersect(ray_dir, ray_origin, voxel_tree_header.min_bound * (1.0f - 1e-5f),
-                                          voxel_tree_header.max_bound * (1.0f - 1e-5f), ray_t_min, ray_t_max);
+  const bool intersect =
+      RayAABBIntersect(ray_dir, ray_origin, voxel_tree_header.min_bound * (1.0f - 1e-5f),
+                       (voxel_tree_header.min_bound + box_size) * (1.0f - 1e-5f), ray_t_min, ray_t_max);
   if (!intersect) {
     return;
   }
@@ -215,12 +263,6 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
   const float3 ray_dir_step = step(0.0f, ray_dir);
   const int32_t3 voxel_step = sign(ray_dir);
 
-#ifdef VOXEL_TREE_READ_WRITE
-  const uint32_t max_depth = voxel_tree_header.max_depth - 1;
-#else
-  const uint32_t max_depth = voxel_tree_header.max_depth - 1;
-#endif
-
   uint32_t3 current_index = GetTreeIndex(position);
 
   uint32_t3 last_index = 0xFFFFFFFF;
@@ -228,7 +270,9 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
   BranchNode node;
   uint32_t local_index;
   uint32_t ptr;
-  while (all(position >= voxel_tree_header.min_bound) && all(position <= voxel_tree_header.max_bound)) {
+
+  while (all(position >= voxel_tree_header.min_bound) &&
+         all(position <= (voxel_tree_header.min_bound + box_size))) {
     const uint32_t3 index_diff = last_index ^ current_index;
     const uint32_t invalidated_stack_size = firstbithigh(index_diff.x | index_diff.y | index_diff.z) >> 1;
 
@@ -244,66 +288,22 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
 
       is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
     } else {
-      for (;; level++) {
-        const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-        const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-        node = voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level - 1)][page_offset];
-
-        local_index = GetLocalIndex(current_index, level);
-
-        is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
-
-        if (level >= initial_ptr_stack_depth) {
-          ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth] = ptr;
-        }
-
-        if (is_empty || level == max_depth)
-          break;
-
-        ptr = node.child_ptr + local_index;
-      }
+      TraverseTreeFromLevelPtr(ptr, level, node, is_empty, local_index, current_index,
+                               voxel_tree_header.max_depth);
     }
 
-    if (!is_empty) {
+    if (!is_empty || result.t > t_max) {
       break;
     }
 
-    const uint32_t level_shift = ((voxel_tree_header.max_depth - 1) - level) * 2 +
-                                 uint32_t((node.child_mask >> (local_index & 0b101010) & 0x00330033) == 0);
-    const float scale = (1 << level_shift) * voxel_size;
-
-    const uint32_t3 level_index = current_index >> level_shift;
-    const float3 voxel_min_bound = voxel_tree_header.min_bound + level_index * scale;
-    const float3 intersect_pos = voxel_min_bound + ray_dir_step * scale;
-
-    const float3 t_max = (intersect_pos - position) * inv_ray_dir;
-
-    const float3 mask = step(t_max, min(t_max.yzx, t_max.zxy));
-
-    const float3 neighbor_min_bound = voxel_min_bound + (voxel_step * scale * mask);
-    const float3 neighbor_max_bound = neighbor_min_bound + scale;
-
-    const float delta_t = dot(mask, t_max);
-    result.t += delta_t;
-
-    const float voxel_clamp_epsilon = 1e-3f;
-    position = clamp(position + delta_t * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
-                     neighbor_max_bound - voxel_clamp_epsilon);
+    position = StepTreeRay(ray_dir_step, ray_dir, inv_ray_dir, voxel_step, position, current_index,
+                           node.child_mask, local_index, level, result.t);
 
     last_index = current_index;
     current_index = GetTreeIndex(position);
 
-    if (result.iterations > 1000) {
-      result.error = true;
-      return;
-    }
     result.iterations++;
   }
-
-  const float3 voxel_min_bound =
-      (voxel_tree_header.max_bound - voxel_tree_header.min_bound) * (float3(current_index) / float3(grid_n)) +
-      voxel_tree_header.min_bound;
 
   if (is_empty) {
     result.hit = false;
@@ -312,34 +312,14 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result) 
   result.hit = true;
 
   result.hit_position = position;
-
-  const float3 rel_hit_pos = result.hit_position - (voxel_min_bound + voxel_size / 2.0f);
-  const float3 abs_hit_pos = abs(rel_hit_pos);
-
-  result.hit_normal = abs_hit_pos.x > abs_hit_pos.y && abs_hit_pos.x > abs_hit_pos.z
-                          ? float3(sign(rel_hit_pos.x), 0.0f, 0.0f)
-                          : (abs_hit_pos.y > abs_hit_pos.z ? float3(0.0f, sign(rel_hit_pos.y), 0.0f)
-                                                           : float3(0.0f, 0.0f, sign(rel_hit_pos.z)));
-  result.tree_index = current_index;
+  result.hit_tree_index = current_index;
 
   ptr = node.child_ptr + local_index;
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
   result.hit_color = UnpackRGBA8(voxel_tree_leaf[page_index][page_offset].color);
-
-#ifndef VOXEL_TREE_READ_WRITE
-  const uint32_t radiance_ptr = node.child_radiance_ptr;
-
-  uint32_t radiance_page_index;
-  uint32_t3 radiance_image_pixel_offset;
-  GetRadianceImagePixelOffset(radiance_ptr, radiance_page_index, radiance_image_pixel_offset);
-
-  const uint32_t3 local_offset = GetLocalOffset(current_index, max_depth);
-
-  result.hit_color = radiance_pages[radiance_page_index].SampleLevel(
-      radiance_sampler, (radiance_image_pixel_offset + local_offset + 1) / radiance_image_size, 0.0f);
-#endif
+  result.hit_normal = UnpackNormal(voxel_tree_leaf[page_index][page_offset].normal);
 }
 
 #endif

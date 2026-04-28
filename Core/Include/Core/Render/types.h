@@ -23,6 +23,31 @@ struct alignas(GPU_ALIGNMENT) DirectionalLight {
   Vec3f32 color;
 };
 
+struct alignas(GPU_ALIGNMENT) VoxelVolume {
+  Vec3f32 min;
+  u32 _p0;
+  Vec3f32 max;
+  u32 _p1;
+};
+
+struct alignas(GPU_ALIGNMENT) Raycast {
+  Vec3f32 origin;
+  f32 t_max = 1e10f;
+  Vec3f32 dir;
+  u32 _p1;
+};
+
+struct alignas(GPU_ALIGNMENT) RaycastResult {
+  Vec4f32 hit_color;
+  Vec3f32 hit_position;
+  u32 iterations;
+  Vec3f32 hit_normal;
+  f32 t;
+  Vec3u32 hit_tree_index;
+  bool error;
+  bool hit;
+};
+
 enum class SamplerFilter : u8 {
   Linear,
   Nearest,

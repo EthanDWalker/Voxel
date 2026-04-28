@@ -74,6 +74,7 @@ void VulkanContext::StartUp() {
   features.shaderInt16 = true;
   features.fragmentStoresAndAtomics = true;
   features.geometryShader = true;
+  features.shaderFloat64 = true;
 
   VkPhysicalDeviceVulkan13Features features_13{};
   features_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
