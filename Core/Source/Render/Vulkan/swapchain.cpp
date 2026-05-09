@@ -171,6 +171,7 @@ void VulkanSwapchain::SubmitCommandBuffer() {
 
   VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, &signal_semaphore_info, &wait_semaphore_info);
 
+  std::lock_guard<std::mutex> lock(VulkanContext::graphics_queue_mutex);
   VK_CHECK(vkQueueSubmit2(VulkanContext::graphics_queue, 1, &submit_info, render_fences[frame_index]));
 }
 
@@ -186,6 +187,7 @@ void VulkanSwapchain::Present(bool &resize) {
   present_info.waitSemaphoreCount = 1;
   present_info.pImageIndices = &image_index;
 
+  std::lock_guard<std::mutex> lock(VulkanContext::graphics_queue_mutex);
   VkResult e = vkQueuePresentKHR(VulkanContext::graphics_queue, &present_info);
   if (e == VK_ERROR_OUT_OF_DATE_KHR) {
     resize = true;

@@ -16,6 +16,10 @@ std::vector<VulkanPipeline<PipelineType::Graphic> *> PipelineBuildManager::graph
 std::vector<PipelineBuilder<PipelineType::Compute>> PipelineBuildManager::compute_pipeline_builder_arr;
 std::vector<VulkanPipeline<PipelineType::Compute> *> PipelineBuildManager::compute_pipeline_ptr_arr;
 
+std::vector<PipelineBuilder<PipelineType::Raytrace>> PipelineBuildManager::rt_pipeline_builder_arr;
+std::vector<VulkanPipeline<PipelineType::Raytrace> *> PipelineBuildManager::rt_pipeline_ptr_arr;
+std::vector<VulkanShaderBindingTable *> PipelineBuildManager::shader_binding_table_ptr_arr;
+
 enum class SlangTokens : u8 {
   Import,
   EndLine,
@@ -94,7 +98,7 @@ void LoadShaderModule(const std::filesystem::path &shader_src, VkShaderModule *o
       import_updated) {
     Log("compiling shader {}", shader_src.string());
     system(std::format("slangc {} -o {} -capability SPIRV_1_6 -target spirv -profile sm_6_6"
-                       " -matrix-layout-column-major -fvk-use-entrypoint-name -O3",
+                       " -matrix-layout-column-major -fvk-use-entrypoint-name -emit-spirv-directly -O3",
                        shader_src.string(), shader_bin)
                .c_str());
   }
@@ -139,6 +143,11 @@ void PipelineBuildManager::RecreatePipelines() {
   for (u32 i = 0; i < compute_pipeline_ptr_arr.size(); i++) {
     compute_pipeline_ptr_arr[i]->Destroy();
     compute_pipeline_builder_arr[i].Build(*compute_pipeline_ptr_arr[i]);
+  }
+  for (u32 i = 0; i < rt_pipeline_ptr_arr.size(); i++) {
+    rt_pipeline_ptr_arr[i]->Destroy();
+    shader_binding_table_ptr_arr[i]->Destroy();
+    rt_pipeline_builder_arr[i].Build(*rt_pipeline_ptr_arr[i], *shader_binding_table_ptr_arr[i]);
   }
 }
 
@@ -442,5 +451,97 @@ void PipelineBuilder<PipelineType::Graphic>::Build(VulkanPipeline<PipelineType::
     vkDestroyShaderModule(VulkanContext::device, geom_shader.value(), nullptr);
     geom_shader.reset();
   }
+}
+
+void PipelineBuilder<PipelineType::Raytrace>::AddDescriptor(const VulkanDescriptor &descriptor) {
+  descriptor_set_layouts.push_back(descriptor.layout);
+}
+
+void PipelineBuilder<PipelineType::Raytrace>::AddPushConstantRange(u32 size) {
+  VkPushConstantRange range{};
+  u32 offset = 0;
+  for (auto &range : push_constant_ranges) {
+    offset += range.offset;
+  }
+  range.offset = offset;
+  range.size = size;
+  range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  push_constant_ranges.push_back(range);
+}
+
+void PipelineBuilder<PipelineType::Raytrace>::Build(VulkanPipeline<PipelineType::Raytrace> &pipeline,
+                                                    VulkanShaderBindingTable &binding_table) {
+  VkShaderModule shader_modules[ShaderStages::SHADER_STAGE_COUNT];
+
+  Assert(std::filesystem::exists(shader_src[ShaderStages::RAY_GEN]), "ray_gen source ({}) doesnt exist",
+         shader_src[ShaderStages::RAY_GEN].string());
+
+  Assert(std::filesystem::exists(shader_src[ShaderStages::MISS]), "miss source ({}) doesnt exist",
+         shader_src[ShaderStages::MISS].string());
+
+  Assert(std::filesystem::exists(shader_src[ShaderStages::CLOSEST_HIT]),
+         "closest hit source ({}) doesnt exist", shader_src[ShaderStages::CLOSEST_HIT].string());
+
+  VkRayTracingShaderGroupCreateInfoKHR shader_group{};
+  shader_group.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+  shader_group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+  shader_group.generalShader = ShaderStages::RAY_GEN;
+  shader_group.closestHitShader = VK_SHADER_UNUSED_KHR;
+  shader_group.anyHitShader = VK_SHADER_UNUSED_KHR;
+  shader_group.intersectionShader = VK_SHADER_UNUSED_KHR;
+  shader_groups[ShaderStages::RAY_GEN] = shader_group;
+
+  shader_group.generalShader = ShaderStages::MISS;
+  shader_groups[ShaderStages::MISS] = shader_group;
+
+  shader_group.generalShader = VK_SHADER_UNUSED_KHR;
+  shader_group.closestHitShader = ShaderStages::CLOSEST_HIT;
+  shader_group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+  shader_groups[ShaderStages::CLOSEST_HIT] = shader_group;
+
+  LoadShaderModule(shader_src[ShaderStages::RAY_GEN], &shader_modules[ShaderStages::RAY_GEN]);
+
+  LoadShaderModule(shader_src[ShaderStages::MISS], &shader_modules[ShaderStages::MISS]);
+
+  LoadShaderModule(shader_src[ShaderStages::CLOSEST_HIT], &shader_modules[ShaderStages::CLOSEST_HIT]);
+  VkPipelineLayoutCreateInfo pipeline_layout_ci{};
+  pipeline_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  pipeline_layout_ci.pPushConstantRanges = push_constant_ranges.data();
+  pipeline_layout_ci.pushConstantRangeCount = push_constant_ranges.size();
+  pipeline_layout_ci.pSetLayouts = descriptor_set_layouts.data();
+  pipeline_layout_ci.setLayoutCount = descriptor_set_layouts.size();
+
+  VK_CHECK(vkCreatePipelineLayout(VulkanContext::device, &pipeline_layout_ci, nullptr, &pipeline.layout));
+
+  VkPipelineShaderStageCreateInfo shader_stage_cis[ShaderStages::SHADER_STAGE_COUNT] = {};
+
+  for (u8 i = 0; i < ShaderStages::SHADER_STAGE_COUNT; i++) {
+    shader_stage_cis[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shader_stage_cis[i].module = shader_modules[i];
+  }
+  shader_stage_cis[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+  shader_stage_cis[0].pName = "RayGenMain";
+  shader_stage_cis[1].stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+  shader_stage_cis[1].pName = "MissMain";
+  shader_stage_cis[2].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+  shader_stage_cis[2].pName = "ClosestHitMain";
+
+  VkRayTracingPipelineCreateInfoKHR pipeline_ci{};
+  pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
+  pipeline_ci.stageCount = ShaderStages::SHADER_STAGE_COUNT;
+  pipeline_ci.pStages = shader_stage_cis;
+  pipeline_ci.groupCount = ShaderStages::SHADER_STAGE_COUNT;
+  pipeline_ci.pGroups = shader_groups;
+  pipeline_ci.maxPipelineRayRecursionDepth = max_recursion;
+  pipeline_ci.layout = pipeline.layout;
+
+  vkCreateRayTracingPipelinesKHR(VulkanContext::device, {}, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr,
+                                 &pipeline.obj);
+
+  for (u8 i = 0; i < ShaderStages::SHADER_STAGE_COUNT; i++) {
+    vkDestroyShaderModule(VulkanContext::device, shader_modules[i], nullptr);
+  }
+
+  binding_table.Create(pipeline.obj, shader_groups);
 }
 } // namespace Core

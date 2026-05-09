@@ -11,16 +11,6 @@ VkDeviceAddress GetDeviceAddress(VkAccelerationStructureKHR as) {
   return vkGetAccelerationStructureDeviceAddressKHR(VulkanContext::device, &device_address_info);
 }
 
-u32 AlignedSize(u32 value, u32 alignment) {
-  ZoneScoped;
-  return (value + alignment - 1) & ~(alignment - 1);
-}
-
-u64 AlignedSize(u64 value, u64 alignment) {
-  ZoneScoped;
-  return (value + alignment - 1) & ~(alignment - 1);
-}
-
 VkTransformMatrixKHR Mat4ToVkTransform(const Mat4f32 &m) {
   ZoneScoped;
   VkTransformMatrixKHR transform;

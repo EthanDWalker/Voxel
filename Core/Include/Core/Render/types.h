@@ -1,9 +1,18 @@
 #pragma once
 
+#include "volk.h"
+
 namespace Core {
 const u32 GPU_ALIGNMENT = 16;
 
 using Index = u32;
+using Instance = VkAccelerationStructureInstanceKHR;
+
+struct alignas(GPU_ALIGNMENT) AllocateInfo {
+  u32 depth;
+  u32 leaf;
+  u32 mesh_id;
+};
 
 struct alignas(GPU_ALIGNMENT) Vertex {
   Vec3f32 position;
@@ -48,6 +57,12 @@ struct alignas(GPU_ALIGNMENT) RaycastResult {
   bool hit;
 };
 
+struct Mesh {
+  u64 id;
+  u32 index_count;
+  u32 vertex_count;
+};
+
 enum class SamplerFilter : u8 {
   Linear,
   Nearest,
@@ -76,6 +91,8 @@ enum class DeviceResourceType : u8 {
 
   CombinedImageSampler,
   Sampler,
+
+  AccelerationStructure,
 };
 
 } // namespace Core

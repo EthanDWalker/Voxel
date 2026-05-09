@@ -4,9 +4,9 @@
 #include "tracy/TracyVulkan.hpp"
 #include "volk.h"
 
-#define VMA_LEAK_LOG_FORMAT(format, ...)                                                           \
-  do {                                                                                             \
-    printf("[Core] VMA: " format "\n", ##__VA_ARGS__);                                             \
+#define VMA_LEAK_LOG_FORMAT(format, ...)                                                                     \
+  do {                                                                                                       \
+    printf("[Core] VMA: " format "\n", ##__VA_ARGS__);                                                       \
   } while (false)
 
 #include "vma/vk_mem_alloc.h"
@@ -26,8 +26,7 @@ struct VulkanContext {
   static VmaAllocator allocator;
   static VkDebugUtilsMessengerEXT debug_messenger;
   static VkQueue graphics_queue;
-  static VkQueue compute_queue;
   static u32 graphics_queue_index;
-  static u32 compute_queue_index;
+  static std::mutex graphics_queue_mutex;
 };
 } // namespace Core

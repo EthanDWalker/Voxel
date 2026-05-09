@@ -60,16 +60,9 @@ struct VulkanCommandBuffer {
   void Blit(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image, const u32 src_mip_level,
             const u32 dst_mip_level);
 
-  template <SubPassType T> void BindSubPass(const VulkanSubPass<T> &sub_pass) {
-    VkDependencyInfo dependency_info{};
-    dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dependency_info.pBufferMemoryBarriers = sub_pass.buffer_barriers.data();
-    dependency_info.bufferMemoryBarrierCount = sub_pass.buffer_barriers.size();
-    dependency_info.pImageMemoryBarriers = sub_pass.image_barriers.data();
-    dependency_info.imageMemoryBarrierCount = sub_pass.image_barriers.size();
+  void TraceRays(const Vec3u32 dispatch, const VulkanShaderBindingTable &shader_binding_table);
 
-    vkCmdPipelineBarrier2(obj, &dependency_info);
-  }
+  void BindSubPass(const BaseVulkanSubPass &sub_pass);
 
   void CopyImageToImage(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image);
 
@@ -78,6 +71,8 @@ struct VulkanCommandBuffer {
       bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
     } else if constexpr (T == PipelineType::Graphic) {
       bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    } else if constexpr (T == PipelineType::Raytrace) {
+      bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
     } else {
       static_assert(false, "This pipeline type is not supported");
     }

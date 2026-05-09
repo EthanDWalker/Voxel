@@ -30,7 +30,8 @@ struct VulkanDescriptor {
   void UpdateFromWrite(const VkWriteDescriptorSet &info);
 
   template <DeviceResourceType type>
-  void Update(const u32 binding, const BaseVulkanImage *image, const VulkanSampler *sampler, const u32 array_index = 0) {
+  void Update(const u32 binding, const BaseVulkanImage *image, const VulkanSampler *sampler,
+              const u32 array_index = 0) {
     static_assert(type == DeviceResourceType::CombinedImageSampler, "must pass combined image sampler");
 
     VkWriteDescriptorSet write{};
@@ -117,8 +118,23 @@ struct VulkanDescriptor {
         image_info.sampler = resource->obj;
       }
 
+      write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
       write.pImageInfo = &image_info;
       UpdateFromWrite(write);
+    } else if constexpr (type == DeviceResourceType::AccelerationStructure) {
+      if constexpr (std::is_null_pointer_v<T>) {
+      } else {
+        VkWriteDescriptorSetAccelerationStructureKHR as_write{};
+        as_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+        as_write.accelerationStructureCount = 1;
+        as_write.pAccelerationStructures = &resource->obj;
+
+        write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        write.pNext = &as_write;
+        UpdateFromWrite(write);
+      }
+    } else {
+      static_assert(false, "invalid device resource type");
     }
   }
 };
@@ -265,7 +281,30 @@ struct DescriptorBuilder {
         image_write_array[i] = image_write;
       }
       Writes.push_back(image_write_array);
-    } else if constexpr (false) {
+    } else if constexpr (type == DeviceResourceType::AccelerationStructure) {
+      VkDescriptorSetLayoutBinding new_binding{};
+      new_binding.binding = Bindings.size();
+      new_binding.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+      new_binding.descriptorCount = 1;
+
+      Bindings.push_back(new_binding);
+
+      VkWriteDescriptorSetAccelerationStructureKHR *as_write =
+          (VkWriteDescriptorSetAccelerationStructureKHR *)malloc(
+              sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
+      memset(as_write, 0, sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
+      as_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+
+      if constexpr (std::is_null_pointer_v<T>) {
+        as_write->pAccelerationStructures = nullptr;
+        as_write->accelerationStructureCount = 0;
+      } else if constexpr (true) {
+        as_write->accelerationStructureCount = count;
+        as_write->pAccelerationStructures = &resource->obj;
+      }
+
+      Writes.push_back(as_write);
+    } else {
       static_assert(false, "binding not supported");
     }
   }

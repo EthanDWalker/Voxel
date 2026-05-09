@@ -88,6 +88,7 @@ void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *
     write.dstSet = descriptor->set;
     write.descriptorCount = binding.descriptorCount;
     write.descriptorType = binding.descriptorType;
+
     switch (binding.descriptorType) {
     case VK_DESCRIPTOR_TYPE_SAMPLER:
     case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
@@ -102,7 +103,13 @@ void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *
       break;
     }
     case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: {
-      write.pNext = Writes[binding.binding];
+      if (((VkWriteDescriptorSetAccelerationStructureKHR *)Writes[binding.binding])
+              ->pAccelerationStructures) {
+        write.pNext = Writes[binding.binding];
+      } else {
+        Core::Log("skipping as write");
+        continue;
+      }
       break;
     }
     default: {

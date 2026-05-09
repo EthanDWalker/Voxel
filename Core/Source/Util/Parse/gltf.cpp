@@ -1,7 +1,6 @@
 #include "Core/Util/Parse/gltf.h"
 #include "Core/Util/Parse/json.h"
 #include "Core/Util/fail.h"
-#include "Core/Util/thread_pool.h"
 #include "Core/Util/timer.h"
 #include <fstream>
 
@@ -165,16 +164,20 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
                .object;
 
       const u32 vertex_count = (u32)position_accessor_object.FindNoFail("count").value_arr[0].number;
-      mesh.vertex_arr.resize(vertex_count);
+      mesh.vertex_host_buffer->Create(sizeof(Vertex) * vertex_count, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                      /*host=*/true);
 
       const u32 index_count = (u32)index_accessor_object.FindNoFail("count").value_arr[0].number;
-      mesh.index_arr.resize(index_count);
+      mesh.index_host_buffer->Create(sizeof(Index) * index_count, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                     /*host=*/true);
 
       file.seekg(bin_offset + (u32)position_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,
                  std::ios::beg);
 
+      mesh.vertex_count = vertex_count;
       for (u32 i = 0; i < vertex_count; i++) {
-        file.read((char *)&mesh.vertex_arr[i].position, sizeof(Vec3f32));
+        Vec3f32 position;
+        file.read((char *)&((Vertex *)mesh.vertex_host_buffer->host_address)[i].position, sizeof(Vec3f32));
       }
 
       file.seekg(bin_offset + (u32)uv_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,
@@ -183,8 +186,8 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
       for (u32 i = 0; i < vertex_count; i++) {
         Vec2f32 uv;
         file.read((char *)&uv, sizeof(Vec2f32));
-        mesh.vertex_arr[i].uv.x = uv.x;
-        mesh.vertex_arr[i].uv.y = uv.y;
+        ((Vertex *)mesh.vertex_host_buffer->host_address)[i].uv.x = uv.x;
+        ((Vertex *)mesh.vertex_host_buffer->host_address)[i].uv.y = uv.y;
       }
 
       file.seekg(bin_offset + (u32)index_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,
@@ -193,8 +196,9 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
       const u32 index_stride = GetGlbAccessorComponentTypeSize(static_cast<GlbAccessorComponentType>(
           index_accessor_object.FindNoFail("componentType").value_arr[0].number));
 
+      mesh.index_count = index_count;
       for (u32 i = 0; i < index_count; i++) {
-        file.read((char *)&mesh.index_arr[i], index_stride);
+        file.read((char *)&((Index *)mesh.index_host_buffer->host_address)[i], index_stride);
       }
 
       mesh.aabb.min = VecTypeCast<f32>(*(Vec3f64 *)position_accessor_object.FindNoFail("min").value_arr);

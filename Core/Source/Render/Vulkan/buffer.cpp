@@ -7,10 +7,17 @@
 
 namespace Core {
 
-VulkanBuffer::~VulkanBuffer() { ZoneScoped;vmaDestroyBuffer(VulkanContext::allocator, obj, allocation); }
-void VulkanBuffer::Destroy() { ZoneScoped;vmaDestroyBuffer(VulkanContext::allocator, obj, allocation); }
+VulkanBuffer::~VulkanBuffer() {
+  ZoneScoped;
+  vmaDestroyBuffer(VulkanContext::allocator, obj, allocation);
+}
+void VulkanBuffer::Destroy() {
+  ZoneScoped;
+  vmaDestroyBuffer(VulkanContext::allocator, obj, allocation);
+}
 
-void VulkanBuffer::Create(u64 size, VkBufferUsageFlags usage, bool host) {
+void VulkanBuffer::CreateAligned(const u64 size, const VkBufferUsageFlags usage, const u64 alignment,
+                                 const bool host) {
   ZoneScoped;
   this->usage = usage;
   this->size = size;
@@ -22,22 +29,50 @@ void VulkanBuffer::Create(u64 size, VkBufferUsageFlags usage, bool host) {
 
   VmaAllocationCreateInfo alloc_ci{};
   alloc_ci.usage = host ? VMA_MEMORY_USAGE_AUTO_PREFER_HOST : VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  alloc_ci.flags = host ? VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
-                        : 0;
+  alloc_ci.flags =
+      host ? VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT : 0;
 
   VmaAllocationInfo info{};
 
-  VK_CHECK(
-      vmaCreateBuffer(VulkanContext::allocator, &buffer_ci, &alloc_ci, &obj, &allocation, &info));
+  VK_CHECK(vmaCreateBufferWithAlignment(VulkanContext::allocator, &buffer_ci, &alloc_ci, alignment, &obj,
+                                        &allocation, &info));
 
   if (host) {
-    this->address = allocation->GetMappedData();
+    this->host_address = allocation->GetMappedData();
   } else if ((usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0) {
     VkBufferDeviceAddressInfo device_address_info{};
     device_address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     device_address_info.buffer = obj;
-    this->address = (void *)vkGetBufferDeviceAddress(VulkanContext::device, &device_address_info);
+    this->device_address = vkGetBufferDeviceAddress(VulkanContext::device, &device_address_info);
+  }
+}
+
+void VulkanBuffer::Create(const u64 size, const VkBufferUsageFlags usage, const bool host) {
+  ZoneScoped;
+  this->usage = usage;
+  this->size = size;
+
+  VkBufferCreateInfo buffer_ci{};
+  buffer_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_ci.size = size;
+  buffer_ci.usage = usage;
+
+  VmaAllocationCreateInfo alloc_ci{};
+  alloc_ci.usage = host ? VMA_MEMORY_USAGE_AUTO_PREFER_HOST : VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  alloc_ci.flags =
+      host ? VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT : 0;
+
+  VmaAllocationInfo info{};
+
+  VK_CHECK(vmaCreateBuffer(VulkanContext::allocator, &buffer_ci, &alloc_ci, &obj, &allocation, &info));
+
+  if (host) {
+    this->host_address = allocation->GetMappedData();
+  } else if ((usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0) {
+    VkBufferDeviceAddressInfo device_address_info{};
+    device_address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+    device_address_info.buffer = obj;
+    this->device_address = vkGetBufferDeviceAddress(VulkanContext::device, &device_address_info);
   }
 }
 } // namespace Core

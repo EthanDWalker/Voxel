@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Render/Vulkan/acceleration_structure.h"
 #include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/image_util.h"
@@ -14,6 +15,7 @@ enum class SubPassType : u8 {
   Transfer,
   Compute,
   Graphic,
+  Raytrace,
 };
 
 template <SubPassType> struct VulkanSubPass {};
@@ -21,6 +23,7 @@ template <SubPassType> struct VulkanSubPass {};
 struct BaseVulkanSubPass {
   std::vector<VkBufferMemoryBarrier2> buffer_barriers;
   std::vector<VkImageMemoryBarrier2> image_barriers;
+  std::vector<VkMemoryBarrier2> memory_barriers;
 
   template <typename T> void AddDependency(const T &object, const DeviceResourceType dependency_type) {
     static_assert(false, "Unsupported type");
@@ -49,9 +52,55 @@ struct BaseVulkanSubPass {
     return barrier;
   }
 
+  VkMemoryBarrier2 &NewMemoryBarrier() {
+    VkMemoryBarrier2 &barrier = memory_barriers.emplace_back();
+    barrier = {};
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    return barrier;
+  }
+
   void ReserveBufferDependencies(const u32 count) { buffer_barriers.reserve(buffer_barriers.size() + count); }
 
   void ReserveImageDependencies(const u32 count) { image_barriers.reserve(image_barriers.size() + count); }
+};
+
+template <> struct VulkanSubPass<SubPassType::Raytrace> : BaseVulkanSubPass {
+  template <DeviceResourceType T> void AddDependency(const VulkanBuffer &object) {
+    VkBufferMemoryBarrier2 &barrier = NewBufferBarrier(object);
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+
+    if constexpr (T == DeviceResourceType::RWBuffer) {
+      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    } else if constexpr (T == DeviceResourceType::Buffer) {
+      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    } else {
+      static_assert(false, "Unsupported dependency type");
+    }
+  }
+
+  void AddDependency(const VulkanAccelerationStructure &object) {
+    VkMemoryBarrier2 &barrier = NewMemoryBarrier();
+    barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+  }
+
+  template <DeviceResourceType T> void AddDependency(const BaseVulkanImage &object) {
+    VkImageMemoryBarrier2 &barrier = NewImageBarrier(object);
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+
+    if constexpr (T == DeviceResourceType::SampledImage) {
+      barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    } else if constexpr (T == DeviceResourceType::StorageImage) {
+      barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    } else if constexpr (T == DeviceResourceType::RWStorageImage) {
+      barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    } else {
+      static_assert(false, "Unsupported dependency type");
+    }
+  }
 };
 
 template <> struct VulkanSubPass<SubPassType::Compute> : BaseVulkanSubPass {

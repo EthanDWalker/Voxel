@@ -9,9 +9,7 @@ template <typename T> constexpr const T Radians(const T degrees) {
 
 template <typename T> constexpr T Min(const T x, const T y) { return (x > y) ? y : x; }
 template <typename T> constexpr T Max(const T x, const T y) { return (x < y) ? y : x; }
-template <typename T> constexpr T Clamp(const T x, const T min, const T max) {
-  return Min(Max(x, min), max);
-}
+template <typename T> constexpr T Clamp(const T x, const T min, const T max) { return Min(Max(x, min), max); }
 
 constexpr u32 Pow(u32 x, u32 y) {
   u32 z = 1;
@@ -81,8 +79,10 @@ constexpr f32 Sin(const f32 radians) {
   // clang-format on
 }
 
-static u32 FloatAsU32(const float x) { return *(u32 *)&x; }
+static u32 FloatAsU32(const f32 x) { return *(u32 *)&x; }
 static f32 U32AsFloat(const u32 x) { return *(f32 *)&x; }
+template <u32 size> static vec<size, u32> FloatAsU32(const vec<size, f32> x) { return *(vec<size, u32> *)&x; }
+template <u32 size> static vec<size, f32> U32AsFloat(const vec<size, u32> x) { return *(vec<size, f32> *)&x; }
 
 struct f16 {
   u16 data;
@@ -90,11 +90,11 @@ struct f16 {
   void FromF32(const f32 data) {
     // IEEE-754 16-bit floating-point format (without infinity): 1-5-10,
     // exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
-    const u32 b = FloatAsU32(data) +
-                  0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
+    const u32 b =
+        FloatAsU32(data) + 0x00001000;    // round-to-nearest-even: add last bit after truncated mantissa
     const u32 e = (b & 0x7F800000) >> 23; // exponent
-    const u32 m = b & 0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 =
-                                  // decimal indicator flag - initial rounding
+    const u32 m = b & 0x007FFFFF;         // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 =
+                                          // decimal indicator flag - initial rounding
     this->data = (b & 0x80000000) >> 16 | (e > 112) * ((((e - 112) << 10) & 0x7C00) | m >> 13) |
                  ((e < 113) & (e > 101)) * ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1) |
                  (e > 143) * 0x7FFF; // sign : normalized : denormalized : saturate
@@ -108,8 +108,8 @@ struct f16 {
     // +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
     const u32 e = (this->data & 0x7C00) >> 10; // exponent
     const u32 m = (this->data & 0x03FF) << 13; // mantissa
-    const u32 v = FloatAsU32((float)m) >>
-                  23; // evil log2 bit hack to count leading zeros in denormalized format
+    const u32 v =
+        FloatAsU32((float)m) >> 23; // evil log2 bit hack to count leading zeros in denormalized format
     return U32AsFloat(
         (this->data & 0x8000) << 16 | (e != 0) * ((e + 112) << 23 | m) |
         ((e == 0) & (m != 0)) *
@@ -129,6 +129,5 @@ static u32 PackSnorm10(f32 v) {
 }
 
 static u32 PackRGB10A2(const Vec3f32 n, u32 a) {
-  return (PackSnorm10(n.x)) | ((PackSnorm10(n.y) << 10)) | ((PackSnorm10(n.z) << 20)) |
-         ((a & 0x3) << 30);
+  return (PackSnorm10(n.x)) | ((PackSnorm10(n.y) << 10)) | ((PackSnorm10(n.z) << 20)) | ((a & 0x3) << 30);
 }

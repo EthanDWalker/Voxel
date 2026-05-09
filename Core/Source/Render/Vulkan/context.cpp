@@ -5,6 +5,7 @@
 #include "Core/Render/Vulkan/util.h"
 #include "Core/Util/thread_pool.h"
 #include "Core/window.h"
+#include <mutex>
 
 #define VOLK_IMPLEMENTATION
 #include "volk.h"
@@ -21,9 +22,8 @@ VkSurfaceKHR VulkanContext::surface;
 VmaAllocator VulkanContext::allocator;
 VkDebugUtilsMessengerEXT VulkanContext::debug_messenger;
 VkQueue VulkanContext::graphics_queue;
-VkQueue VulkanContext::compute_queue;
 u32 VulkanContext::graphics_queue_index;
-u32 VulkanContext::compute_queue_index;
+std::mutex VulkanContext::graphics_queue_mutex;
 
 static thread_local VkCommandPool command_pool;
 static thread_local VkCommandBuffer command_buffer;
@@ -51,11 +51,20 @@ void VulkanContext::StartUp() {
   volkInitialize();
   vkb::InstanceBuilder instance_builder;
 
-  auto instance_return = instance_builder.set_app_name("Core")
-                             .request_validation_layers()
-                             .set_debug_callback(VulkanDebugCallback)
-                             .require_api_version(1, 3)
-                             .build();
+  auto instance_return =
+      instance_builder.set_app_name("Core")
+          .request_validation_layers()
+          /*
+                                   .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT)
+                                   .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT)
+          */
+          .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT)
+          .set_debug_messenger_severity(VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                                        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+          .set_debug_callback(VulkanDebugCallback)
+          .require_api_version(1, 3)
+          .build();
 
   assert(instance_return);
 
@@ -73,8 +82,8 @@ void VulkanContext::StartUp() {
   features.shaderInt64 = true;
   features.shaderInt16 = true;
   features.fragmentStoresAndAtomics = true;
+  features.vertexPipelineStoresAndAtomics = true;
   features.geometryShader = true;
-  features.shaderFloat64 = true;
 
   VkPhysicalDeviceVulkan13Features features_13{};
   features_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
@@ -107,7 +116,25 @@ void VulkanContext::StartUp() {
   robustness_2.pNext = nullptr;
   robustness_2.nullDescriptor = true;
 
+  VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features{};
+  as_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+  as_features.accelerationStructure = true;
+  as_features.descriptorBindingAccelerationStructureUpdateAfterBind = true;
+
+  VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracing_features{};
+  raytracing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+  raytracing_features.rayTracingPipeline = true;
+
   vkb::PhysicalDeviceSelector physical_device_selector{vkb_instance};
+
+  VkPhysicalDeviceFaultFeaturesEXT fault_features{};
+  fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+  fault_features.deviceFault = VK_TRUE;
+  fault_features.deviceFaultVendorBinary = VK_TRUE;
+
+  VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features{};
+  raytracing_validation_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV;
+  raytracing_validation_features.rayTracingValidation = true;
 
   vkb::PhysicalDevice vkb_physical_device =
       physical_device_selector.set_minimum_version(1, 3)
@@ -120,6 +147,14 @@ void VulkanContext::StartUp() {
           .add_required_extension_features(robustness_2)
           .add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
           .add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
+          .add_required_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
+          .add_required_extension_features(as_features)
+          .add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
+          .add_required_extension_features(raytracing_features)
+          .add_required_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME)
+          .add_required_extension_features(fault_features)
+          .add_required_extension(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)
+          .add_required_extension_features(raytracing_validation_features)
           .select()
           .value();
   physical_device = vkb_physical_device.physical_device;
@@ -132,9 +167,6 @@ void VulkanContext::StartUp() {
 
   graphics_queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
   graphics_queue_index = vkb_device.get_queue_index(vkb::QueueType::graphics).value();
-
-  compute_queue = vkb_device.get_queue(vkb::QueueType::compute).value();
-  compute_queue_index = vkb_device.get_queue_index(vkb::QueueType::compute).value();
 
   VmaVulkanFunctions vulkan_functions{};
   vulkan_functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
@@ -151,7 +183,6 @@ void VulkanContext::StartUp() {
   VkCommandPoolCreateInfo command_pool_ci{};
   command_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   command_pool_ci.queueFamilyIndex = VulkanContext::graphics_queue_index;
-  command_pool_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
   VK_CHECK(vkCreateCommandPool(device, &command_pool_ci, nullptr, &command_pool));
 
@@ -197,7 +228,10 @@ void VulkanContext::Submit(const std::function<void(VulkanCommandBuffer &cmd)> &
   VkCommandBufferSubmitInfo cmd_submit_info = CommandBufferSubmitInfo(cmd.obj);
   VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, nullptr, nullptr);
 
-  VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit_info, fence));
+  {
+    std::lock_guard<std::mutex> lock(graphics_queue_mutex);
+    VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit_info, fence));
+  }
 
   VK_CHECK(vkWaitForFences(device, 1, &fence, VK_TRUE, std::numeric_limits<u64>::max()));
 }

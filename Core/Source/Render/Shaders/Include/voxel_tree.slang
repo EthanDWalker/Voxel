@@ -1,33 +1,104 @@
 #pragma once
 #include "common.slang"
 
-static const uint32_t SENTINAL = 0xFFFFFFFF;
+static const uint32_t CHILD_PTR_MASK = 0x7FFFFFFF;
+static const uint32_t IS_LEAF_BIT_OFFSET = 31;
+static const uint32_t IS_LEAF_BIT = 0x80000000;
+
+struct ChildPtrData {
+  uint32_t data;
+
+  __init(const uint32_t data) { this.data = data; }
+
+  property uint32_t child_ptr {
+    get { return data & CHILD_PTR_MASK; }
+  }
+
+  property bool is_leaf {
+    get { return bool(data >> IS_LEAF_BIT_OFFSET); }
+  }
+};
 
 struct BranchNode {
   uint64_t child_mask;
-  uint32_t child_ptr;
-};
+  ChildPtrData child_ptr_data;
+}
 
 struct AtomicBranchNode {
   Atomic<uint64_t> child_mask;
-  Atomic<uint32_t> child_ptr;
+  Atomic<uint32_t> child_ptr_data;
+};
+
+struct PackedLeafNode {
+  uint32_t data;
+};
+
+struct AtomicPackedLeafNode {
+  Atomic<uint32_t> data;
 };
 
 struct LeafNode {
-  uint32_t color;
-  uint32_t normal;
+  float4 color;
+  float3 normal;
 };
 
-struct AtomicLeafNode {
-  Atomic<uint32_t> color;
-  Atomic<uint32_t> normal;
-};
+// 5 bits r
+// 6 bits g
+// 6 bits b
+// 8 bit phi
+// 8 bit theta
+uint32_t PackLeafNode(const LeafNode node) {
+  uint32_t value = 0;
+
+  value |= uint32_t(node.color.r * float((1 << 5) - 1)) << 27;
+  value |= uint32_t(node.color.g * float((1 << 6) - 1)) << 21;
+  value |= uint32_t(node.color.b * float((1 << 5) - 1)) << 16;
+
+  const float PI = 3.14159;
+  const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
+  value |= uint32_t(acos(node.normal.z) * phi_ratio) << 8;
+
+  const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
+  value |= uint32_t((atan2(node.normal.y, node.normal.x) + PI) * theta_ratio) << 0;
+
+  return value;
+}
+
+LeafNode UnpackLeafNode(const uint64_t data) {
+  LeafNode node;
+
+  const float PI = 3.14159f;
+
+  const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
+  const float theta = (((data >> 0) & 0xFF) / theta_ratio) - PI;
+
+  const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
+  const float phi = (((data >> 8) & 0xFF) / phi_ratio);
+
+  node.normal.z = cos(phi);
+  node.normal.y = sin(phi) * sin(theta);
+  node.normal.x = sin(phi) * cos(theta);
+
+  node.normal = normalize(node.normal);
+
+  node.color.rgb = ((data >> uint32_t3(27, 21, 16)) & uint32_t3(0x1F, 0x3F, 0x1F)) /
+                   float3((1 << 5) - 1, (1 << 6) - 1, (1 << 5) - 1);
+  node.color.a = 1.0f;
+
+  return node;
+}
 
 struct VoxelizeInfo {
   float4 position : SV_Position;
-  float3 world_position;
-  float16_t2 uv;
-  float3 normal;
+  float3 world_position : varying;
+  float16_t2 uv : varying;
+  float3 normal : varying;
+};
+
+struct AllocateInfo {
+  uint32_t depth;
+  uint32_t leaf;
+  uint32_t mesh_id;
 };
 
 struct BaseTreeHeader<T>
@@ -58,22 +129,14 @@ struct RWTreeHeader : BaseTreeHeader<RWByteBuffer> {
     return val;
   }
 
-  const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(20 + (level * sizeof(uint32_t)));
-  }
-
-  const uint32_t AllocateVoxels(const uint32_t level, const uint32_t amount) {
+  const uint32_t AllocateBranchVoxels(const uint32_t amount) {
     uint32_t val;
-    buffer.data.InterlockedAdd(20 + ((max_depth - 1) + level) * sizeof(uint32_t), amount, val);
+    buffer.data.InterlockedAdd(20, amount, val);
     return val;
   }
 };
 
-struct TreeHeader : BaseTreeHeader<ByteBuffer> {
-  const uint32_t GetLevelPageOffset(const uint32_t level) {
-    return buffer.data.Load<uint32_t>(20 + (level * sizeof(uint32_t)));
-  }
-}
+struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
 
 // clang-format off
 #ifndef VOXEL_TREE_SET_BINDING
@@ -85,7 +148,7 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {
   [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
   RWStructuredBuffer<AtomicBranchNode> voxel_tree[];
   [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-  RWStructuredBuffer<AtomicLeafNode> voxel_tree_leaf[];
+  RWStructuredBuffer<AtomicPackedLeafNode> voxel_tree_leaf[];
 
 #else
 
@@ -94,14 +157,14 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     RWStructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-    RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
+    RWStructuredBuffer<PackedLeafNode> voxel_tree_leaf[];
 
   #else
 
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     StructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-    StructuredBuffer<LeafNode> voxel_tree_leaf[];
+    StructuredBuffer<PackedLeafNode> voxel_tree_leaf[];
 
   #endif
 
@@ -109,12 +172,12 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {
 
 #ifdef VOXEL_TREE_READ_WRITE
 
-  [[vk::binding(4, VOXEL_TREE_SET_BINDING)]]
+  [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
   RWTreeHeader voxel_tree_header;
 
 #else
 
-  [[vk::binding(4, VOXEL_TREE_SET_BINDING)]]
+  [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
   TreeHeader voxel_tree_header;
 
 #endif
@@ -167,50 +230,6 @@ uint32_t3 GetLocalOffset(const uint32_t3 index, const uint32_t depth) {
   return (index >> (((voxel_tree_header.max_depth - 1) - depth) << 1)) & 0x3;
 }
 
-void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout BranchNode node,
-                              inout bool is_empty, inout uint32_t local_index, const uint32_t3 index,
-                              const uint32_t max_depth) {
-  for (;; level++) {
-    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-#ifdef VOXEL_TREE_ATOMIC
-    node.child_ptr = voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level - 1)][page_offset]
-                         .child_ptr.load();
-    node.child_mask = voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level - 1)][page_offset]
-                          .child_mask.load();
-#else
-    node = voxel_tree[page_index + voxel_tree_header.GetLevelPageOffset(level - 1)][page_offset];
-#endif
-
-    local_index = GetLocalIndex(index, level);
-
-    is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
-
-    if (level >= initial_ptr_stack_depth) {
-      ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth] = ptr;
-    }
-
-    if (is_empty || level == (max_depth - 1))
-      break;
-
-    ptr = node.child_ptr + local_index;
-  }
-}
-
-#ifndef VOXEL_TREE_ATOMIC
-
-struct RaycastResult {
-  float4 hit_color;
-  float3 hit_position;
-  uint32_t iterations;
-  float3 hit_normal;
-  float t;
-  uint32_t3 hit_tree_index;
-  bool error;
-  bool hit;
-};
-
 float3 StepTreeRay(const float3 ray_dir_step, const float3 ray_dir, const float3 inv_ray_dir,
                    const float3 voxel_step, const float3 position, const uint32_t3 index,
                    const uint64_t child_mask, const uint32_t local_index, const uint32_t level,
@@ -237,6 +256,48 @@ float3 StepTreeRay(const float3 ray_dir_step, const float3 ray_dir, const float3
   return clamp(position + delta_t * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
                neighbor_max_bound - voxel_clamp_epsilon);
 }
+
+void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout BranchNode node,
+                              inout bool is_empty, inout uint32_t local_index, const uint32_t3 index) {
+  for (;; level++) {
+    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+
+#ifdef VOXEL_TREE_ATOMIC
+    node.child_ptr_data = ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
+    node.child_mask = voxel_tree[page_index][page_offset].child_mask.load();
+#else
+    node = voxel_tree[page_index][page_offset];
+#endif
+
+    local_index = GetLocalIndex(index, level);
+
+    is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
+
+    if (level >= initial_ptr_stack_depth) {
+      ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth] = ptr;
+    }
+
+    if (is_empty || node.child_ptr_data.is_leaf)
+      break;
+
+    ptr = node.child_ptr_data.child_ptr + local_index;
+  }
+}
+
+#ifndef VOXEL_TREE_ATOMIC
+
+struct RaycastResult {
+  float4 hit_color;
+  float3 hit_position;
+  uint32_t iterations;
+  float3 hit_normal;
+  float t;
+  uint32_t3 hit_tree_index;
+  uint32_t triangle_id;
+  bool error;
+  bool hit;
+};
 
 void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, const float t_max = 1e10f) {
   result.hit = false;
@@ -288,8 +349,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
 
       is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
     } else {
-      TraverseTreeFromLevelPtr(ptr, level, node, is_empty, local_index, current_index,
-                               voxel_tree_header.max_depth);
+      TraverseTreeFromLevelPtr(ptr, level, node, is_empty, local_index, current_index);
     }
 
     if (!is_empty || result.t > t_max) {
@@ -314,12 +374,13 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
   result.hit_position = position;
   result.hit_tree_index = current_index;
 
-  ptr = node.child_ptr + local_index;
+  ptr = node.child_ptr_data.child_ptr + local_index;
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-  result.hit_color = UnpackRGBA8(voxel_tree_leaf[page_index][page_offset].color);
-  result.hit_normal = UnpackNormal(voxel_tree_leaf[page_index][page_offset].normal);
+  const LeafNode leaf_node = UnpackLeafNode(voxel_tree_leaf[page_index][page_offset].data);
+  result.hit_color = leaf_node.color;
+  result.hit_normal = leaf_node.normal;
 }
 
 #endif

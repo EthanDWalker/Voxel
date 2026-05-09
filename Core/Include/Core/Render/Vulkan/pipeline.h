@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Render/Vulkan/descriptors.h"
+#include "Core/Render/Vulkan/shader_binding_table.h"
 #include "volk.h"
 #include <filesystem>
 #include <optional>
@@ -11,6 +12,7 @@ namespace Core {
 enum class PipelineType {
   Graphic,
   Compute,
+  Raytrace,
 };
 
 struct BaseVulkanPipeline {
@@ -33,6 +35,35 @@ struct BaseVulkanPipeline {
 template <PipelineType T> struct VulkanPipeline : BaseVulkanPipeline {};
 
 template <PipelineType T> struct PipelineBuilder {};
+
+template <> struct PipelineBuilder<PipelineType::Raytrace> {
+  enum ShaderStages : u8 {
+    RAY_GEN = 0,
+    MISS = 1,
+    CLOSEST_HIT = 2,
+    SHADER_STAGE_COUNT = 3,
+  };
+
+  std::vector<VkPushConstantRange> push_constant_ranges = {};
+  std::vector<VkDescriptorSetLayout> descriptor_set_layouts = {};
+  VkRayTracingShaderGroupCreateInfoKHR shader_groups[ShaderStages::SHADER_STAGE_COUNT] = {};
+  std::filesystem::path shader_src[ShaderStages::SHADER_STAGE_COUNT];
+  u8 max_recursion = 0;
+
+  void SetShaders(const std::filesystem::path &ray_gen, const std::filesystem::path &miss,
+                  const std::filesystem::path &closest_hit) {
+    shader_src[ShaderStages::RAY_GEN] = ray_gen;
+    shader_src[ShaderStages::MISS] = miss;
+    shader_src[ShaderStages::CLOSEST_HIT] = closest_hit;
+  }
+
+  void SetMaxRecursion(const u8 value) { max_recursion = value; }
+
+  void AddPushConstantRange(u32 size);
+  void AddDescriptor(const VulkanDescriptor &descriptor);
+
+  void Build(VulkanPipeline<PipelineType::Raytrace> &pipeline, VulkanShaderBindingTable &binding_table);
+};
 
 template <> struct PipelineBuilder<PipelineType::Compute> {
   std::vector<VkPushConstantRange> push_constant_ranges = {};
@@ -57,18 +88,17 @@ template <> struct PipelineBuilder<PipelineType::Graphic> {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
   VkPipelineTessellationStateCreateInfo tessellation = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
-  VkPipelineViewportStateCreateInfo viewport = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+  VkPipelineViewportStateCreateInfo viewport = {.sType =
+                                                    VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
   VkPipelineRasterizationStateCreateInfo rasterization = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
   VkPipelineMultisampleStateCreateInfo multisample = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
   VkPipelineDepthStencilStateCreateInfo depth_stencil = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-  VkPipelineDynamicStateCreateInfo dynamic_state = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-  VkPipelineRenderingCreateInfo render_info = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+  VkPipelineDynamicStateCreateInfo dynamic_state = {.sType =
+                                                        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+  VkPipelineRenderingCreateInfo render_info = {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
   VkPipelineViewportStateCreateInfo viewport_state = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
   VkPipelineRasterizationConservativeStateCreateInfoEXT conservative_rasterization = {
@@ -131,18 +161,23 @@ struct PipelineBuildManager {
   static std::vector<PipelineBuilder<PipelineType::Compute>> compute_pipeline_builder_arr;
   static std::vector<VulkanPipeline<PipelineType::Compute> *> compute_pipeline_ptr_arr;
 
+  static std::vector<PipelineBuilder<PipelineType::Raytrace>> rt_pipeline_builder_arr;
+  static std::vector<VulkanPipeline<PipelineType::Raytrace> *> rt_pipeline_ptr_arr;
+  static std::vector<VulkanShaderBindingTable *> shader_binding_table_ptr_arr;
+
   template <PipelineType T> static PipelineBuilder<T> &New() {
     if constexpr (T == PipelineType::Graphic) {
       return graphics_pipeline_builder_arr.emplace_back();
     } else if constexpr (T == PipelineType::Compute) {
       return compute_pipeline_builder_arr.emplace_back();
+    }else if constexpr  (T == PipelineType::Raytrace) {
+      return rt_pipeline_builder_arr.emplace_back();
     } else {
       static_assert(false, "Invalid type");
     }
   }
 
-  template <PipelineType T>
-  static void Build(PipelineBuilder<T> &builder, VulkanPipeline<T> &pipeline) {
+  template <PipelineType T> static void Build(PipelineBuilder<T> &builder, VulkanPipeline<T> &pipeline) {
     if constexpr (T == PipelineType::Graphic) {
       graphics_pipeline_ptr_arr.push_back(&pipeline);
       builder.Build(pipeline);
@@ -152,6 +187,14 @@ struct PipelineBuildManager {
     } else {
       static_assert(false, "Invalid type");
     }
+  }
+
+  static void Build(PipelineBuilder<PipelineType::Raytrace> &builder,
+                    VulkanPipeline<PipelineType::Raytrace> &pipeline,
+                    VulkanShaderBindingTable &shader_binding_table) {
+    rt_pipeline_ptr_arr.push_back(&pipeline);
+    shader_binding_table_ptr_arr.push_back(&shader_binding_table);
+    builder.Build(pipeline, shader_binding_table);
   }
 
   static void RecreatePipelines();

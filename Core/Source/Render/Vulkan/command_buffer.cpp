@@ -3,8 +3,8 @@
 #include "Core/Render/Vulkan/image_util.h"
 #include "Core/Render/Vulkan/indirect_draw.h"
 #include "Core/Render/Vulkan/info.h"
+#include "Core/Render/Vulkan/shader_binding_table.h"
 #include "Core/Render/Vulkan/util.h"
-#include "Core/Util/fail.h"
 
 namespace Core {
 void VulkanCommandBuffer::Begin() {
@@ -14,7 +14,28 @@ void VulkanCommandBuffer::Begin() {
   VK_CHECK(vkBeginCommandBuffer(obj, &cmd_begin));
 }
 
+void VulkanCommandBuffer::TraceRays(const Vec3u32 dispatch,
+                                    const VulkanShaderBindingTable &shader_binding_table) {
+  vkCmdTraceRaysKHR(obj, &shader_binding_table.ray_gen_entry, &shader_binding_table.miss_entry,
+                    &shader_binding_table.closest_hit_entry, &shader_binding_table.callable_entry, dispatch.x,
+                    dispatch.y, dispatch.z);
+}
+
+void VulkanCommandBuffer::BindSubPass(const BaseVulkanSubPass &sub_pass) {
+  VkDependencyInfo dependency_info{};
+  dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency_info.pBufferMemoryBarriers = sub_pass.buffer_barriers.data();
+  dependency_info.bufferMemoryBarrierCount = sub_pass.buffer_barriers.size();
+  dependency_info.pImageMemoryBarriers = sub_pass.image_barriers.data();
+  dependency_info.imageMemoryBarrierCount = sub_pass.image_barriers.size();
+  dependency_info.memoryBarrierCount = sub_pass.memory_barriers.size();
+  dependency_info.pMemoryBarriers = sub_pass.memory_barriers.data();
+
+  vkCmdPipelineBarrier2(obj, &dependency_info);
+}
+
 void VulkanCommandBuffer::ClearImage(const BaseVulkanImage &image) {
+  ZoneScoped;
   VkImageSubresourceRange range{};
   range.baseArrayLayer = 0;
   range.baseMipLevel = 0;
@@ -38,12 +59,12 @@ void VulkanCommandBuffer::End() {
 
 void VulkanCommandBuffer::PushConstants(VkShaderStageFlagBits stages, u32 size, const void *data) {
   ZoneScoped;
-  Assert(bound_pipeline_layout, "Must bind pipeline before pushing constants");
   vkCmdPushConstants(obj, *bound_pipeline_layout, stages, push_constant_offset, size, data);
   push_constant_offset += size;
 }
 
 void VulkanCommandBuffer::ClearPushConstants() {
+  ZoneScoped;
   push_constant_offset = 0;
 }
 
@@ -90,9 +111,6 @@ void VulkanCommandBuffer::FillBuffer(const VulkanBuffer &buffer, const u64 fill_
 void VulkanCommandBuffer::UploadBufferToBuffer(const VulkanBuffer &src_buffer, const VulkanBuffer &dst_buffer,
                                                const u64 size, const u64 src_offset, const u64 dst_offset) {
   ZoneScoped;
-  Assert((dst_buffer.usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) != 0 &&
-             (VK_BUFFER_USAGE_TRANSFER_SRC_BIT & src_buffer.usage) != 0,
-         "When trying to upload buffer to buffer proper bits arent set");
   VkBufferCopy buffer_copy{};
   buffer_copy.size = size;
   buffer_copy.dstOffset = dst_offset;
@@ -291,13 +309,11 @@ void VulkanCommandBuffer::EndRendering() {
 
 void VulkanCommandBuffer::BindIndexBuffer(const VulkanBuffer &index_buffer) {
   ZoneScoped;
-  Assert((index_buffer.usage & VK_BUFFER_USAGE_INDEX_BUFFER_BIT) != 0, "Must bind an index buffer");
   vkCmdBindIndexBuffer(obj, index_buffer.obj, 0, VK_INDEX_TYPE_UINT32);
 }
 
 void VulkanCommandBuffer::BindDescriptors(const std::vector<VkDescriptorSet> &descriptors) {
   ZoneScoped;
-  Assert(bound_pipeline_layout, "You must bind a pipeline to bind descriptor");
   vkCmdBindDescriptorSets(obj, bind_point, *bound_pipeline_layout, 0, descriptors.size(), descriptors.data(),
                           0, nullptr);
 }

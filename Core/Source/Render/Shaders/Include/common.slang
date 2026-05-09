@@ -1,7 +1,8 @@
 #pragma once
 
 static const uint32_t PTR_STACK_SIZE = 4;
-static const uint32_t BEAM_PREPASS_SCALE = 4;
+static const uint32_t PREPASS_SCALE = 4;
+static const uint32_t SENTINAL = 0xFFFFFFFF;
 
 enum Axis {
   X,
@@ -17,11 +18,11 @@ struct DirectionalLight {
 
 struct Vertex {
   float3 position;
-  private uint32_t uv_data;
+  uint32_t uv_data;
 
   property float2 uv {
-    get { return float2(f16tof32(uv_data >> 16), f16tof32(uv_data & 0xFFFF)); }
-  }
+    get { return f16tof32((uv_data >> uint32_t2(0, 16)) & 0xFFFF); }
+  };
 }
 
 interface IBuffer {

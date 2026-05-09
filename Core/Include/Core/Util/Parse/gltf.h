@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/types.h"
 #include <filesystem>
+#include <memory>
 
 namespace Core {
 struct MaterialData {
@@ -13,9 +15,12 @@ struct MaterialData {
 
 struct MeshData {
   AABB aabb;
-  std::vector<Vertex> vertex_arr;
-  std::vector<Index> index_arr;
+  std::unique_ptr<VulkanBuffer> vertex_host_buffer =
+      std::make_unique<VulkanBuffer>("mesh vertex host buffer");
+  std::unique_ptr<VulkanBuffer> index_host_buffer = std::make_unique<VulkanBuffer>("mesh index host buffer");
   MaterialData material;
+  u32 vertex_count;
+  u32 index_count;
 
   void Free() { material.Free(); }
 };

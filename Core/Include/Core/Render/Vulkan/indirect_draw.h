@@ -5,16 +5,16 @@
 
 namespace Core {
 struct VulkanIndirectDrawCommand {
-  VulkanIndirectDrawCommand() = default;
+  VulkanIndirectDrawCommand() = delete;
 
   VulkanIndirectDrawCommand(const VulkanIndirectDrawCommand &) = delete;
   VulkanIndirectDrawCommand &operator=(const VulkanIndirectDrawCommand &) = delete;
 
   VulkanIndirectDrawCommand(VulkanIndirectDrawCommand &&) = default;
-  VulkanIndirectDrawCommand &operator=(VulkanIndirectDrawCommand &&) = default;
+  VulkanIndirectDrawCommand &operator=(VulkanIndirectDrawCommand &&) = delete;
 
-  VulkanBuffer draw_buffer;
-  VulkanBuffer draw_count_buffer;
+  VulkanBuffer draw_buffer = "indirect draw buffer";
+  VulkanBuffer draw_count_buffer = "indirect draw count buffer";
 
   VulkanDescriptor descriptor;
 

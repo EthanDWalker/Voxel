@@ -1,12 +1,20 @@
 #include "Include/camera.slang"
 #define VOXEL_TREE_SET_BINDING 2
 #include "Include/voxel_tree.slang"
+#define DENSE_SET_SET_BINDING 3
+#include "Include/dense_set.slang"
 
 [[vk::binding(1, 0)]]
 RWTexture2D<float> beam_image;
 
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
+
+[[vk::binding(0, 4)]]
+StructuredBuffer<uint32_t> mesh_triangle_offsets;
+
+[[vk::binding(3, 4)]]
+RWStructuredBuffer<uint32_t> triangle_voxelized_depth_arr[];
 
 [numthreads(8, 8, 1)]
 void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
@@ -41,10 +49,11 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
                float(dispatch_id.y + pixel_corner_offsets[i].y) / float(image_size.y) * -2.0f + 1.0f);
 
     const float4 world_pixel_corner = mul(inv_view_proj, float4(corner_ndc, 1.0f, 1.0f));
-    max_r = max(max_r, length(world_pixel_corner.xyz / world_pixel_corner.w - center_world.xyz / center_world.w));
+    max_r =
+        max(max_r, length(world_pixel_corner.xyz / world_pixel_corner.w - center_world.xyz / center_world.w));
   }
 
   RaycastResult res;
-  Raycast(ray_origin, ray_dir, res, voxel_radius / max_r);
+  Raycast(ray_origin, ray_dir, res);
   beam_image.Store(dispatch_id, res.t);
 }
