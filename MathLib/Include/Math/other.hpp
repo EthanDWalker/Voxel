@@ -131,3 +131,31 @@ static u32 PackSnorm10(f32 v) {
 static u32 PackRGB10A2(const Vec3f32 n, u32 a) {
   return (PackSnorm10(n.x)) | ((PackSnorm10(n.y) << 10)) | ((PackSnorm10(n.z) << 20)) | ((a & 0x3) << 30);
 }
+
+static u16 PackNormal(Vec3f32 normal) {
+  normal = Normalize(normal);
+  u16 value = 0;
+
+  const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
+  value |= u16(acos(normal.z) * phi_ratio) << 8;
+
+  const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
+  value |= u16((atan2(normal.y, normal.x) + PI) * theta_ratio) << 0;
+
+  return value;
+}
+
+static Vec3f32 UnpackNormal(const u16 data) {
+  Vec3f32 normal;
+  const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
+  const float theta = (((data >> 0) & 0xFF) / theta_ratio) - PI;
+
+  const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
+  const float phi = (((data >> 8) & 0xFF) / phi_ratio);
+
+  normal.z = cos(phi);
+  normal.y = sin(phi) * sin(theta);
+  normal.x = sin(phi) * cos(theta);
+
+  return Normalize(normal);
+}

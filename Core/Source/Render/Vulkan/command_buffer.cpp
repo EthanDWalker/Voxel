@@ -1,7 +1,7 @@
 #include "Core/Render/Vulkan/command_buffer.h"
+#include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/image_util.h"
-#include "Core/Render/Vulkan/indirect_draw.h"
 #include "Core/Render/Vulkan/info.h"
 #include "Core/Render/Vulkan/shader_binding_table.h"
 #include "Core/Render/Vulkan/util.h"
@@ -33,6 +33,15 @@ void VulkanCommandBuffer::BindSubPass(const BaseVulkanSubPass &sub_pass) {
 
   vkCmdPipelineBarrier2(obj, &dependency_info);
 }
+
+void VulkanCommandBuffer::BeginDebugPass(const char *const name) {
+  VkDebugUtilsLabelEXT label_info{};
+  label_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+  label_info.pLabelName = name;
+  vkCmdBeginDebugUtilsLabelEXT(obj, &label_info);
+}
+
+void VulkanCommandBuffer::EndDebugPass() { vkCmdEndDebugUtilsLabelEXT(obj); }
 
 void VulkanCommandBuffer::ClearImage(const BaseVulkanImage &image) {
   ZoneScoped;
@@ -102,14 +111,15 @@ void VulkanCommandBuffer::CopyImageToImage(const BaseVulkanImage &src_image,
   vkCmdCopyImage2(obj, &info);
 }
 
-void VulkanCommandBuffer::FillBuffer(const VulkanBuffer &buffer, const u64 fill_size, const u32 data,
+void VulkanCommandBuffer::FillBuffer(const BaseVulkanBuffer &buffer, const u64 fill_size, const u32 data,
                                      const u32 offset) {
   ZoneScoped;
   vkCmdFillBuffer(obj, buffer.obj, offset, fill_size, data);
 }
 
-void VulkanCommandBuffer::UploadBufferToBuffer(const VulkanBuffer &src_buffer, const VulkanBuffer &dst_buffer,
-                                               const u64 size, const u64 src_offset, const u64 dst_offset) {
+void VulkanCommandBuffer::UploadBufferToBuffer(const BaseVulkanBuffer &src_buffer,
+                                               const BaseVulkanBuffer &dst_buffer, const u64 size,
+                                               const u64 src_offset, const u64 dst_offset) {
   ZoneScoped;
   VkBufferCopy buffer_copy{};
   buffer_copy.size = size;
@@ -119,13 +129,7 @@ void VulkanCommandBuffer::UploadBufferToBuffer(const VulkanBuffer &src_buffer, c
   vkCmdCopyBuffer(obj, src_buffer.obj, dst_buffer.obj, 1, &buffer_copy);
 }
 
-void VulkanCommandBuffer::DrawIndirect(const VulkanIndirectDrawCommand &command) {
-  ZoneScoped;
-  vkCmdDrawIndexedIndirectCount(obj, command.draw_buffer.obj, 0, command.draw_count_buffer.obj, 0,
-                                command.max_draw_count, sizeof(VkDrawIndexedIndirectCommand));
-}
-
-void VulkanCommandBuffer::UploadBufferToImage(const VulkanBuffer &buffer, const BaseVulkanImage &image,
+void VulkanCommandBuffer::UploadBufferToImage(const BaseVulkanBuffer &buffer, const BaseVulkanImage &image,
                                               const u32 src_offset, const u32 mip_level) {
   ZoneScoped;
   VkBufferImageCopy copy_region{};
@@ -307,15 +311,15 @@ void VulkanCommandBuffer::EndRendering() {
   bound_pipeline_layout = nullptr;
 }
 
-void VulkanCommandBuffer::BindIndexBuffer(const VulkanBuffer &index_buffer) {
+void VulkanCommandBuffer::BindIndexBuffer(const BaseVulkanBuffer &index_buffer) {
   ZoneScoped;
   vkCmdBindIndexBuffer(obj, index_buffer.obj, 0, VK_INDEX_TYPE_UINT32);
 }
 
-void VulkanCommandBuffer::BindDescriptors(const std::vector<VkDescriptorSet> &descriptors) {
+void VulkanCommandBuffer::BindDescriptors(const std::vector<VulkanDescriptor> &descriptors) {
   ZoneScoped;
-  vkCmdBindDescriptorSets(obj, bind_point, *bound_pipeline_layout, 0, descriptors.size(), descriptors.data(),
-                          0, nullptr);
+  vkCmdBindDescriptorSets(obj, bind_point, *bound_pipeline_layout, 0, descriptors.size(),
+                          (const VkDescriptorSet *)descriptors.data(), 0, nullptr);
 }
 
 void VulkanCommandBuffer::Draw(u32 vertex_count, u32 instance_count, u32 vertex_offset, u32 instance_offset) {

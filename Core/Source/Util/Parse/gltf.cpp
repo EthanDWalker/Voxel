@@ -147,6 +147,8 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
           *accessor_array.value_arr[(u32)primitive_object.FindNoFail("indices").value_arr[0].number].object;
       const JsonObject position_accessor_object =
           *accessor_array.value_arr[(u32)attributes_object.FindNoFail("POSITION").value_arr[0].number].object;
+      const JsonObject normal_accessor_object =
+          *accessor_array.value_arr[(u32)attributes_object.FindNoFail("NORMAL").value_arr[0].number].object;
       const JsonObject uv_accessor_object =
           *accessor_array.value_arr[(u32)attributes_object.FindNoFail("TEXCOORD_0").value_arr[0].number]
                .object;
@@ -159,17 +161,21 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
           *buffer_view_array
                .value_arr[(u32)position_accessor_object.FindNoFail("bufferView").value_arr[0].number]
                .object;
+      const JsonObject normal_buffer_view_object =
+          *buffer_view_array
+               .value_arr[(u32)normal_accessor_object.FindNoFail("bufferView").value_arr[0].number]
+               .object;
       const JsonObject uv_buffer_view_object =
           *buffer_view_array.value_arr[(u32)uv_accessor_object.FindNoFail("bufferView").value_arr[0].number]
                .object;
 
       const u32 vertex_count = (u32)position_accessor_object.FindNoFail("count").value_arr[0].number;
-      mesh.vertex_host_buffer->Create(sizeof(Vertex) * vertex_count, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                      /*host=*/true);
+      mesh.vertex_host_buffer->BuildAddStagingBinding(sizeof(Vertex) * vertex_count);
+      mesh.vertex_host_buffer->Build();
 
       const u32 index_count = (u32)index_accessor_object.FindNoFail("count").value_arr[0].number;
-      mesh.index_host_buffer->Create(sizeof(Index) * index_count, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                     /*host=*/true);
+      mesh.index_host_buffer->BuildAddStagingBinding(sizeof(Index) * index_count);
+      mesh.index_host_buffer->Build();
 
       file.seekg(bin_offset + (u32)position_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,
                  std::ios::beg);
@@ -177,7 +183,18 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
       mesh.vertex_count = vertex_count;
       for (u32 i = 0; i < vertex_count; i++) {
         Vec3f32 position;
-        file.read((char *)&((Vertex *)mesh.vertex_host_buffer->host_address)[i].position, sizeof(Vec3f32));
+        file.read((char *)&position, sizeof(Vec3f32));
+        ((Vertex *)mesh.vertex_host_buffer->host_address)[i].position =
+            VecTypeCast<f16>(Vec4f32(position, 0.0f));
+      }
+
+      file.seekg(bin_offset + (u32)normal_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,
+                 std::ios::beg);
+
+      for (u32 i = 0; i < vertex_count; i++) {
+        Vec3f32 normal;
+        file.read((char *)&normal, sizeof(Vec3f32));
+        ((Vertex *)mesh.vertex_host_buffer->host_address)[i].normal = PackNormal(normal);
       }
 
       file.seekg(bin_offset + (u32)uv_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,
@@ -186,8 +203,7 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
       for (u32 i = 0; i < vertex_count; i++) {
         Vec2f32 uv;
         file.read((char *)&uv, sizeof(Vec2f32));
-        ((Vertex *)mesh.vertex_host_buffer->host_address)[i].uv.x = uv.x;
-        ((Vertex *)mesh.vertex_host_buffer->host_address)[i].uv.y = uv.y;
+        ((Vertex *)mesh.vertex_host_buffer->host_address)[i].uv = VecTypeCast<f16>(uv);
       }
 
       file.seekg(bin_offset + (u32)index_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,

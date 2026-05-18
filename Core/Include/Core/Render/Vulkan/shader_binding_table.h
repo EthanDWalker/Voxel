@@ -14,9 +14,9 @@ struct VulkanShaderBindingTable {
   VulkanShaderBindingTable(VulkanShaderBindingTable &&) = default;
   VulkanShaderBindingTable &operator=(VulkanShaderBindingTable &&) = delete;
 
-  VulkanBuffer ray_gen = "shader binding table ray gen";
-  VulkanBuffer miss = "shader binding table miss";
-  VulkanBuffer closest_hit = "shader binding table closest hit";
+  BaseVulkanBuffer ray_gen = "shader binding table ray gen";
+  BaseVulkanBuffer miss = "shader binding table miss";
+  BaseVulkanBuffer closest_hit = "shader binding table closest hit";
 
   VkStridedDeviceAddressRegionKHR ray_gen_entry{};
   VkStridedDeviceAddressRegionKHR miss_entry{};
@@ -24,11 +24,11 @@ struct VulkanShaderBindingTable {
   VkStridedDeviceAddressRegionKHR callable_entry{};
 
   void Destroy() {
-    ray_gen.Destroy();
-    miss.Destroy();
-    closest_hit.Destroy();
+    ray_gen.DestroyBase();
+    miss.DestroyBase();
+    closest_hit.DestroyBase();
   }
-  ~VulkanShaderBindingTable() {}
+  ~VulkanShaderBindingTable() { Destroy(); }
 
   void Create(VkPipeline pipeline, std::span<VkRayTracingShaderGroupCreateInfoKHR> shader_groups);
 };

@@ -11,21 +11,22 @@
 
 namespace Core {
 
+struct VulkanDescriptorLayout {
+  VulkanDescriptorLayout() = default;
+
+  VulkanDescriptorLayout(const VulkanDescriptorLayout &) = delete;
+  VulkanDescriptorLayout &operator=(const VulkanDescriptorLayout &) = delete;
+
+  VulkanDescriptorLayout(VulkanDescriptorLayout &&) = default;
+  VulkanDescriptorLayout &operator=(VulkanDescriptorLayout &&) = default;
+
+  VkDescriptorSetLayout obj = VK_NULL_HANDLE;
+
+  ~VulkanDescriptorLayout();
+};
+
 struct VulkanDescriptor {
-  VulkanDescriptor() = default;
-
-  VulkanDescriptor(const VulkanDescriptor &) = delete;
-  VulkanDescriptor &operator=(const VulkanDescriptor &) = delete;
-
-  VulkanDescriptor(VulkanDescriptor &&) = default;
-  VulkanDescriptor &operator=(VulkanDescriptor &&) = default;
-
-  VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-
-  operator VkDescriptorSet() { return this->set; }
-
-  ~VulkanDescriptor();
+  VkDescriptorSet obj = VK_NULL_HANDLE;
 
   void UpdateFromWrite(const VkWriteDescriptorSet &info);
 
@@ -39,7 +40,7 @@ struct VulkanDescriptor {
     write.dstArrayElement = array_index;
     write.descriptorCount = 1;
     write.dstBinding = binding;
-    write.dstSet = set;
+    write.dstSet = obj;
 
     VkDescriptorImageInfo image_info{};
     image_info.imageView = image ? image->view : VK_NULL_HANDLE;
@@ -54,18 +55,22 @@ struct VulkanDescriptor {
 
   template <DeviceResourceType type, typename T = std::nullptr_t>
   void Update(const u32 binding, const T resource = nullptr, const u32 array_index = 0) {
-    static_assert(std::is_pointer_v<T> || std::is_null_pointer_v<T>, "must pass in pointer");
+    constexpr const bool is_null = std::is_null_pointer_v<T>;
+
+    static_assert(std::is_pointer_v<T> || is_null, "must pass in pointer");
+
+    using StructType = std::remove_pointer_t<T>;
 
     VkWriteDescriptorSet write{};
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstArrayElement = array_index;
     write.descriptorCount = 1;
     write.dstBinding = binding;
-    write.dstSet = set;
+    write.dstSet = obj;
 
     if constexpr (type == DeviceResourceType::Buffer) {
       VkDescriptorBufferInfo buffer_info{};
-      if (std::is_null_pointer_v<T>) {
+      if (is_null) {
         buffer_info.buffer = nullptr;
         write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       } else {
@@ -84,7 +89,7 @@ struct VulkanDescriptor {
                          type == DeviceResourceType::StorageImage ||
                          type == DeviceResourceType::RWStorageImage) {
       VkDescriptorImageInfo image_info{};
-      if (std::is_null_pointer_v<T>) {
+      if (is_null) {
         image_info.imageView = VK_NULL_HANDLE;
       } else {
         image_info.imageView = resource->view;
@@ -112,7 +117,7 @@ struct VulkanDescriptor {
     } else if constexpr (type == DeviceResourceType::Sampler) {
       VkDescriptorImageInfo image_info{};
 
-      if constexpr (std::is_null_pointer_v<T>) {
+      if constexpr (is_null) {
         image_info.sampler = VK_NULL_HANDLE;
       } else if constexpr (true) {
         image_info.sampler = resource->obj;
@@ -122,7 +127,7 @@ struct VulkanDescriptor {
       write.pImageInfo = &image_info;
       UpdateFromWrite(write);
     } else if constexpr (type == DeviceResourceType::AccelerationStructure) {
-      if constexpr (std::is_null_pointer_v<T>) {
+      if constexpr (is_null) {
       } else {
         VkWriteDescriptorSetAccelerationStructureKHR as_write{};
         as_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
@@ -156,7 +161,7 @@ struct VulkanDescriptorPool {
 
   void Destroy();
   void StartUp();
-  void Allocate(VulkanDescriptor *descriptor, void *pNext = nullptr);
+  void Allocate(const VulkanDescriptorLayout &layout, VulkanDescriptor &set, void *pNext = nullptr);
   void NewPool();
 };
 
@@ -171,20 +176,25 @@ struct DescriptorBuilder {
 
   template <DeviceResourceType type, typename T = std::nullptr_t>
   static void Bind(const T resource = nullptr, const u32 count = 1) {
-    static_assert(std::is_pointer_v<T> || std::is_null_pointer_v<T>, "must pass in pointer to resource");
+    constexpr const bool is_null = std::is_null_pointer_v<T>;
+
+    static_assert(std::is_pointer_v<T> || is_null, "must pass in pointer to resource");
+
+    using StructType = std::remove_pointer_t<T>;
 
     if constexpr (type == DeviceResourceType::Buffer) {
-      static_assert(std::is_same_v<T, VulkanBuffer *> || std::is_null_pointer_v<T>,
+      static_assert(std::is_same_v<BaseVulkanBuffer, StructType> ||
+                        std::is_base_of_v<BaseVulkanBuffer, StructType> || is_null,
                     "must provide vulkan buffer for resource type of buffer");
       VkDescriptorSetLayoutBinding new_binding{};
       new_binding.binding = Bindings.size();
-      if constexpr (std::is_same_v<T, VulkanBuffer *>) {
+      if constexpr (is_null) {
+        new_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      } else {
         new_binding.descriptorType =
-            ((((VulkanBuffer *)resource)->usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) != 0)
+            ((((BaseVulkanBuffer *)resource)->usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) != 0)
                 ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
                 : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      } else {
-        new_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       }
       new_binding.descriptorCount = count;
 
@@ -195,10 +205,10 @@ struct DescriptorBuilder {
 
       for (u32 i = 0; i < count; i++) {
         VkDescriptorBufferInfo buffer_write{};
-        if constexpr (std::is_null_pointer_v<T>) {
+        if constexpr (is_null) {
           buffer_write.buffer = VK_NULL_HANDLE;
-        } else if constexpr (true) {
-          buffer_write.buffer = resource->obj;
+        } else {
+          buffer_write.buffer = resource[i].obj;
         }
         buffer_write.offset = 0;
         buffer_write.range = VK_WHOLE_SIZE;
@@ -209,9 +219,8 @@ struct DescriptorBuilder {
     } else if constexpr (type == DeviceResourceType::SampledImage ||
                          type == DeviceResourceType::StorageImage ||
                          type == DeviceResourceType::RWStorageImage) {
-      static_assert(std::is_base_of_v<BaseVulkanImage, std::remove_pointer_t<T>> ||
-                        std::is_same_v<BaseVulkanImage, std::remove_pointer_t<T>> ||
-                        std::is_null_pointer_v<T>,
+      static_assert(std::is_base_of_v<BaseVulkanImage, StructType> ||
+                        std::is_same_v<BaseVulkanImage, StructType> || is_null,
                     "must provide base vulkan image for resource type of image");
 
       VkDescriptorSetLayoutBinding new_binding{};
@@ -237,7 +246,7 @@ struct DescriptorBuilder {
       for (u32 i = 0; i < count; i++) {
         VkDescriptorImageInfo image_write{};
 
-        if constexpr (std::is_null_pointer_v<T>) {
+        if constexpr (is_null) {
           image_write.imageView = VK_NULL_HANDLE;
         } else if constexpr (true) {
           image_write.imageView = resource->view;
@@ -259,7 +268,7 @@ struct DescriptorBuilder {
       }
       Writes.push_back(image_write_array);
     } else if constexpr (type == DeviceResourceType::Sampler) {
-      static_assert(std::is_same_v<T, VulkanSampler *> || std::is_null_pointer_v<T>,
+      static_assert(std::is_same_v<T, VulkanSampler *> || is_null,
                     "must pass vulkan sampler to that resource type");
       VkDescriptorSetLayoutBinding new_binding{};
       new_binding.binding = Bindings.size();
@@ -272,7 +281,7 @@ struct DescriptorBuilder {
           (VkDescriptorImageInfo *)malloc(sizeof(VkDescriptorImageInfo) * count);
       for (u32 i = 0; i < count; i++) {
         VkDescriptorImageInfo image_write{};
-        if constexpr (std::is_null_pointer_v<T>) {
+        if constexpr (is_null) {
           image_write.sampler = VK_NULL_HANDLE;
         } else if constexpr (true) {
           image_write.sampler = resource->obj;
@@ -295,7 +304,7 @@ struct DescriptorBuilder {
       memset(as_write, 0, sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
       as_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
 
-      if constexpr (std::is_null_pointer_v<T>) {
+      if constexpr (is_null) {
         as_write->pAccelerationStructures = nullptr;
         as_write->accelerationStructureCount = 0;
       } else if constexpr (true) {
@@ -332,7 +341,9 @@ struct DescriptorBuilder {
     Writes.push_back(image_write_array);
   }
 
-  static void Build(VkShaderStageFlags stage_flags, VulkanDescriptor *descriptor);
+  static void BuildLayout(const VkShaderStageFlags stage_flags, VulkanDescriptorLayout &layout);
+  static void BuildSet(const VkShaderStageFlags stage_flags, const VulkanDescriptorLayout &layout,
+                       VulkanDescriptor &descriptor);
   static void Reset();
 };
 } // namespace Core

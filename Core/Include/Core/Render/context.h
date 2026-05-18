@@ -1,15 +1,15 @@
 #pragma once
 
-#include "Core/Render/Vulkan/acceleration_structure.h"
 #include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/pipeline.h"
-#include "Core/Render/Vulkan/shader_binding_table.h"
 #include "Core/Render/Vulkan/swapchain.h"
-#include "Core/Render/device_dense_set.h"
+#include "Core/Render/camera.h"
+#include "Core/Render/device_hash_set.h"
 #include "Core/Render/types.h"
 #include "sparse_voxel_tree.h"
+#include <chrono>
 #include <functional>
 #include <mutex>
 
@@ -21,7 +21,8 @@ struct Spec {
   u32 max_meshes = 1'000;
 };
 
-const u32 PREPASS_SCALE = 4;
+const u32 BEAM_PREPASS_SCALE_EXP = 2;
+const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
 
 struct RenderContext {
   Spec current_spec;
@@ -29,49 +30,62 @@ struct RenderContext {
   VulkanImage<ImageType::Planar> main_image;
   VulkanImage<ImageType::Planar> beam_prepass_image;
 
-  VulkanBuffer frame_staging_buffer = "frame staging buffer";
+  std::array<VulkanBuffer<BufferType::StagingBuffer>, VulkanSwapchain::FRAME_OVERLAP> frame_staging_buffer = {
+      "frame staging buffer 0",
+      "frame staging buffer 1",
+      "frame staging buffer 2",
+  };
+
+  std::array<VulkanBuffer<BufferType::StructuredBuffer, Camera>, VulkanSwapchain::FRAME_OVERLAP>
+      camera_buffer = {
+          "camera buffer 0",
+          "camera buffer 1",
+          "camera buffer 2",
+  };
 
   VulkanPipeline<PipelineType::Compute> main_pipeline;
   VulkanPipeline<PipelineType::Compute> beam_prepass_pipeline;
   VulkanPipeline<PipelineType::Compute> clear_volume_pipeline;
+  VulkanPipeline<PipelineType::Compute> indirect_lighting_prepass_pipeline;
 
   VulkanPipeline<PipelineType::Graphic> allocate_pipeline;
   VulkanPipeline<PipelineType::Graphic> allocate_child_mask_pipeline;
-  VulkanPipeline<PipelineType::Graphic> reallocate_pipeline;
-  VulkanPipeline<PipelineType::Raytrace> triangle_id_pipeline;
-  VulkanShaderBindingTable triangle_id_shader_binding_table;
 
-  DeviceDenseSet triangle_id_dense_set = DeviceDenseSet(
-      10'000, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-
+  VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
-  VulkanDescriptor camera_descriptor;
-  VulkanBuffer camera_buffer = "camera buffer";
 
+  VulkanDescriptorLayout camera_descriptor_layout;
+  std::array<VulkanDescriptor, VulkanSwapchain::FRAME_OVERLAP> camera_descriptor = {};
+
+  VulkanDescriptorLayout light_descriptor_layout;
   VulkanDescriptor light_descriptor;
-  VulkanBuffer directional_light_buffer = "directional light buffer";
+  VulkanBuffer<BufferType::CountedBuffer, DirectionalLight> directional_light_buffer =
+      "directional light buffer";
   u32 directional_light_count;
 
   SparseVoxelTree voxel_tree;
 
+  DeviceHashSet indirect_light_hash_set;
+
   std::vector<VoxelVolume> clear_volume_cmds;
   std::mutex clear_volume_cmd_mutex;
 
-  VulkanDescriptor mesh_descriptor;
-  VulkanBuffer mesh_triangle_offset_buffer = "mesh triangle offset buffer";
-  u32 total_triangles = 0;
   u32 mesh_count = 0;
-  std::vector<std::unique_ptr<VulkanBuffer>> vertex_buffers;
-  std::vector<std::unique_ptr<VulkanBuffer>> index_buffers;
-  std::vector<std::unique_ptr<VulkanBuffer>> triangle_voxelized_depth_buffers;
+
+  VulkanDescriptorLayout mesh_descriptor_layout;
+  VulkanDescriptor mesh_descriptor;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, Vertex>>> vertex_buffers;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, Index>>> index_buffers;
   VulkanSampler albedo_sampler;
   std::vector<std::unique_ptr<VulkanImage<ImageType::Planar>>> albedo_images;
-  std::vector<std::unique_ptr<VulkanAccelerationStructure>> bottom_level_acceleration_structures;
 
-  VulkanBuffer raycast_staging_buffer = "raycast staging buffer";
-  VulkanBuffer raycast_cmds_buffer = "raycast cmd buffer";
-  VulkanBuffer raycast_results_buffer = "raycast result buffer";
+  VulkanBuffer<BufferType::StagingBuffer> raycast_staging_buffer = "raycast staging buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, Raycast> raycast_cmds_buffer = "raycast cmd buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, RaycastResult> raycast_results_buffer = "raycast result buffer";
+
+  VulkanDescriptorLayout raycast_descriptor_layout;
   VulkanDescriptor raycast_descriptor;
+
   std::vector<Raycast> raycast_cmds;
   std::vector<std::function<void(RaycastResult)>> raycast_callbacks;
   std::mutex raycast_mutex;
@@ -79,10 +93,11 @@ struct RenderContext {
 
   std::mutex add_instance_cmd_mutex;
   std::vector<Instance> add_instance_cmds;
-  VulkanBuffer instance_buffer = "instance buffer";
-  VulkanAccelerationStructure top_level_acceleration_structure;
-  VulkanDescriptor top_level_acceleration_structure_descriptor;
+  VulkanBuffer<BufferType::StructuredBuffer, Instance> instance_buffer = "instance buffer";
   u32 instance_count;
+
+  std::chrono::time_point<std::chrono::steady_clock> last_frame_time;
+  std::chrono::time_point<std::chrono::steady_clock> start_time;
 
   void Create(const Spec &spec);
   void CreatePipelines();

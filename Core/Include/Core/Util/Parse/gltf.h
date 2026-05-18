@@ -15,9 +15,10 @@ struct MaterialData {
 
 struct MeshData {
   AABB aabb;
-  std::unique_ptr<VulkanBuffer> vertex_host_buffer =
-      std::make_unique<VulkanBuffer>("mesh vertex host buffer");
-  std::unique_ptr<VulkanBuffer> index_host_buffer = std::make_unique<VulkanBuffer>("mesh index host buffer");
+  std::unique_ptr<VulkanBuffer<BufferType::StagingBuffer>> vertex_host_buffer =
+      std::make_unique<VulkanBuffer<BufferType::StagingBuffer>>("mesh vertex staging buffer");
+  std::unique_ptr<VulkanBuffer<BufferType::StagingBuffer>> index_host_buffer =
+      std::make_unique<VulkanBuffer<BufferType::StagingBuffer>>("mesh index staging buffer");
   MaterialData material;
   u32 vertex_count;
   u32 index_count;

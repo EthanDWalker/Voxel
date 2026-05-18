@@ -3,6 +3,7 @@
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/util.h"
 #include <cstdlib>
+#include <tracy/Tracy.hpp>
 #include <vector>
 
 namespace Core {
@@ -10,9 +11,9 @@ VulkanDescriptorPool DescriptorBuilder::Pool;
 std::vector<VkDescriptorSetLayoutBinding> DescriptorBuilder::Bindings;
 std::vector<void *> DescriptorBuilder::Writes;
 
-VulkanDescriptor::~VulkanDescriptor() {
+VulkanDescriptorLayout::~VulkanDescriptorLayout() {
   ZoneScoped;
-  vkDestroyDescriptorSetLayout(VulkanContext::device, layout, nullptr);
+  vkDestroyDescriptorSetLayout(VulkanContext::device, obj, nullptr);
 }
 
 void VulkanDescriptor::UpdateFromWrite(const VkWriteDescriptorSet &info) {
@@ -42,11 +43,11 @@ void DescriptorBuilder::Reset() {
   Writes.clear();
 }
 
-void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *descriptor) {
+void DescriptorBuilder::BuildLayout(const VkShaderStageFlags stage_flags, VulkanDescriptorLayout &layout) {
   ZoneScoped;
-  if (descriptor->layout != VK_NULL_HANDLE) {
-    vkDestroyDescriptorSetLayout(VulkanContext::device, descriptor->layout, nullptr);
-    descriptor->layout = VK_NULL_HANDLE;
+  if (layout.obj != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(VulkanContext::device, layout.obj, nullptr);
+    layout.obj = VK_NULL_HANDLE;
   }
   for (auto &binding : Bindings) {
     binding.stageFlags = stage_flags;
@@ -71,13 +72,13 @@ void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *
   ds_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
   ds_layout_ci.pNext = &binding_flags_info;
 
-  VK_CHECK(vkCreateDescriptorSetLayout(VulkanContext::device, &ds_layout_ci, nullptr, &descriptor->layout));
+  VK_CHECK(vkCreateDescriptorSetLayout(VulkanContext::device, &ds_layout_ci, nullptr, &layout.obj));
+}
 
-  if (descriptor->set != VK_NULL_HANDLE) {
-    vkFreeDescriptorSets(VulkanContext::device, Pool.current_pool, 1, &descriptor->set);
-    descriptor->set = VK_NULL_HANDLE;
-  }
-  Pool.Allocate(descriptor);
+void DescriptorBuilder::BuildSet(const VkShaderStageFlags stage_flags, const VulkanDescriptorLayout &layout,
+                                 VulkanDescriptor &set) {
+  Assert(set.obj == VK_NULL_HANDLE, "tried to allocate descriptor with allocation already present");
+  Pool.Allocate(layout, set);
 
   std::vector<VkWriteDescriptorSet> binding_writes;
 
@@ -85,7 +86,7 @@ void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *
     VkWriteDescriptorSet write{};
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstBinding = binding.binding;
-    write.dstSet = descriptor->set;
+    write.dstSet = set.obj;
     write.descriptorCount = binding.descriptorCount;
     write.descriptorType = binding.descriptorType;
 
@@ -120,7 +121,6 @@ void DescriptorBuilder::Build(VkShaderStageFlags stage_flags, VulkanDescriptor *
     binding_writes.push_back(write);
   }
   vkUpdateDescriptorSets(VulkanContext::device, binding_writes.size(), binding_writes.data(), 0, nullptr);
-  Reset();
 }
 
 void VulkanDescriptorPool::StartUp() {
@@ -152,16 +152,17 @@ void VulkanDescriptorPool::NewPool() {
   used_pools.push_back(current_pool);
 }
 
-void VulkanDescriptorPool::Allocate(VulkanDescriptor *descriptor, void *pNext) {
+void VulkanDescriptorPool::Allocate(const VulkanDescriptorLayout &layout, VulkanDescriptor &set,
+                                    void *pNext) {
   ZoneScoped;
   VkDescriptorSetAllocateInfo ds_alloc_info{};
   ds_alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   ds_alloc_info.descriptorPool = current_pool;
-  ds_alloc_info.pSetLayouts = &descriptor->layout;
+  ds_alloc_info.pSetLayouts = &layout.obj;
   ds_alloc_info.descriptorSetCount = 1;
   ds_alloc_info.pNext = pNext;
 
-  VkResult result = vkAllocateDescriptorSets(VulkanContext::device, &ds_alloc_info, &descriptor->set);
+  VkResult result = vkAllocateDescriptorSets(VulkanContext::device, &ds_alloc_info, &set.obj);
 
   switch (result) {
   case VK_ERROR_OUT_OF_POOL_MEMORY:
@@ -178,7 +179,7 @@ void VulkanDescriptorPool::Allocate(VulkanDescriptor *descriptor, void *pNext) {
   NewPool();
   ds_alloc_info.descriptorPool = current_pool;
 
-  VK_CHECK(vkAllocateDescriptorSets(VulkanContext::device, &ds_alloc_info, &descriptor->set));
+  VK_CHECK(vkAllocateDescriptorSets(VulkanContext::device, &ds_alloc_info, &set.obj));
 }
 
 void VulkanDescriptorPool::Destroy() {

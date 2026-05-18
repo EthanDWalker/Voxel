@@ -54,11 +54,11 @@ void VulkanContext::StartUp() {
   auto instance_return =
       instance_builder.set_app_name("Core")
           .request_validation_layers()
-          /*
-                                   .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT)
-                                   .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT)
-          */
           .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT)
+          /*
+                .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT)
+          */
+          .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
           .set_debug_messenger_severity(VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
                                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
                                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
@@ -82,7 +82,6 @@ void VulkanContext::StartUp() {
   features.shaderInt64 = true;
   features.shaderInt16 = true;
   features.fragmentStoresAndAtomics = true;
-  features.vertexPipelineStoresAndAtomics = true;
   features.geometryShader = true;
 
   VkPhysicalDeviceVulkan13Features features_13{};
@@ -107,6 +106,7 @@ void VulkanContext::StartUp() {
   features_12.shaderFloat16 = true;
   features_12.shaderOutputLayer = true;
   features_12.shaderBufferInt64Atomics = true;
+  features_12.timelineSemaphore = true;
 
   VkPhysicalDeviceVulkan11Features features_11{};
   features_11.storageBuffer16BitAccess = true;
@@ -136,6 +136,11 @@ void VulkanContext::StartUp() {
   raytracing_validation_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV;
   raytracing_validation_features.rayTracingValidation = true;
 
+  VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{};
+  float_atomic_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
+  float_atomic_features.shaderBufferFloat32AtomicAdd = true;
+  float_atomic_features.shaderBufferFloat32Atomics = true;
+
   vkb::PhysicalDevice vkb_physical_device =
       physical_device_selector.set_minimum_version(1, 3)
           .set_required_features_13(features_13)
@@ -155,6 +160,8 @@ void VulkanContext::StartUp() {
           .add_required_extension_features(fault_features)
           .add_required_extension(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)
           .add_required_extension_features(raytracing_validation_features)
+          .add_required_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME)
+          .add_required_extension_features(float_atomic_features)
           .select()
           .value();
   physical_device = vkb_physical_device.physical_device;
@@ -226,7 +233,7 @@ void VulkanContext::Submit(const std::function<void(VulkanCommandBuffer &cmd)> &
   cmd.End();
 
   VkCommandBufferSubmitInfo cmd_submit_info = CommandBufferSubmitInfo(cmd.obj);
-  VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, nullptr, nullptr);
+  VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, {}, {});
 
   {
     std::lock_guard<std::mutex> lock(graphics_queue_mutex);

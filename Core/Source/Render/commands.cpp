@@ -1,4 +1,5 @@
 #include "Core/Render/commands.h"
+#include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/command_buffer.h"
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/submission_pass.h"
@@ -16,8 +17,7 @@ void QueueAddInstanceCmd(const Mesh &mesh) {
   instance.mask = 0xFF;
   instance.instanceShaderBindingTableRecordOffset = 0;
   instance.flags = 0;
-  instance.accelerationStructureReference =
-      GetDeviceAddress(render_context->bottom_level_acceleration_structures[mesh.id]->obj);
+  instance.accelerationStructureReference = 0;
 }
 
 void FlushAddInstanceCmds() {
@@ -25,10 +25,12 @@ void FlushAddInstanceCmds() {
   if (render_context->add_instance_cmds.size() == 0)
     return;
 
-  VulkanBuffer staging_buffer = "staging buffer";
-  staging_buffer.Create(sizeof(Instance) * render_context->add_instance_cmds.size(),
-                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT, /*host=*/true);
-  memcpy(staging_buffer.host_address, render_context->add_instance_cmds.data(), staging_buffer.size);
+  VulkanBuffer<BufferType::StagingBuffer> staging_buffer = "staging buffer";
+
+  staging_buffer.BuildAddStagingBinding(sizeof(Instance) * render_context->add_instance_cmds.size());
+  staging_buffer.Build();
+  staging_buffer.IncrementMemory(render_context->add_instance_cmds.data(),
+                                 sizeof(Instance) * render_context->add_instance_cmds.size());
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     {
@@ -45,12 +47,6 @@ void FlushAddInstanceCmds() {
 
   render_context->instance_count += render_context->add_instance_cmds.size();
   render_context->add_instance_cmds.clear();
-
-  render_context->top_level_acceleration_structure.RecreateTopLevel(render_context->instance_buffer,
-                                                                    render_context->instance_count);
-  render_context->top_level_acceleration_structure_descriptor
-      .Update<DeviceResourceType::AccelerationStructure>(0,
-                                                         &render_context->top_level_acceleration_structure);
 }
 
 void QueueClearVolumeCmd(const VoxelVolume &volume) {

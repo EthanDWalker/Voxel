@@ -8,14 +8,16 @@
 namespace Core {
 
 VulkanAccelerationStructure::~VulkanAccelerationStructure() {
-  vkDestroyAccelerationStructureKHR(VulkanContext::device, obj, nullptr);
-}
-
-void VulkanAccelerationStructure::RecreateTopLevel(const VulkanBuffer &instance_buffer,
-                                                   const u32 instance_count) {
   ZoneScoped;
   vkDestroyAccelerationStructureKHR(VulkanContext::device, obj, nullptr);
-  buffer.Destroy();
+  buffer.DestroyBase();
+}
+
+void VulkanAccelerationStructure::RecreateTopLevel(
+    const VulkanBuffer<BufferType::StructuredBuffer, Instance> &instance_buffer, const u32 instance_count) {
+  ZoneScoped;
+  vkDestroyAccelerationStructureKHR(VulkanContext::device, obj, nullptr);
+  buffer.DestroyBase();
   CreateTopLevel(instance_buffer, instance_count);
 }
 
@@ -41,9 +43,9 @@ void VulkanAccelerationStructure::CreateBase(const VkAccelerationStructureGeomet
                                           VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info,
                                           max_primitive_count.data(), &size_info);
 
-  buffer.Create(size_info.accelerationStructureSize,
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR);
+  buffer.CreateBase(size_info.accelerationStructureSize,
+                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR);
 
   VkAccelerationStructureCreateInfoKHR as_ci{};
   as_ci.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
@@ -62,8 +64,8 @@ void VulkanAccelerationStructure::CreateBase(const VkAccelerationStructureGeomet
 
   vkGetPhysicalDeviceProperties2(VulkanContext::physical_device, &props);
 
-  VulkanBuffer scratch_buffer = "scratch buffer";
-  scratch_buffer.CreateAligned(
+  BaseVulkanBuffer scratch_buffer = "scratch buffer";
+  scratch_buffer.CreateAlignedBase(
       AlignUp(size_info.buildScratchSize, as_props.minAccelerationStructureScratchOffsetAlignment),
       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -91,10 +93,13 @@ void VulkanAccelerationStructure::CreateBase(const VkAccelerationStructureGeomet
 
     vkCmdBuildAccelerationStructuresKHR(cmd.obj, 1, &build_info, range_info.data());
   });
+
+  scratch_buffer.DestroyBase();
 }
 
-void VulkanAccelerationStructure::CreateBottomLevel(const VulkanBuffer &vertex_buffer,
-                                                    const VulkanBuffer &index_buffer) {
+void VulkanAccelerationStructure::CreateBottomLevel(
+    const VulkanBuffer<BufferType::StructuredBuffer, Vertex> &vertex_buffer,
+    const VulkanBuffer<BufferType::StructuredBuffer, Index> &index_buffer) {
   ZoneScoped;
   VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
   triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
@@ -117,8 +122,8 @@ void VulkanAccelerationStructure::CreateBottomLevel(const VulkanBuffer &vertex_b
   CreateBase(geometry, offset, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR);
 }
 
-void VulkanAccelerationStructure::CreateTopLevel(const VulkanBuffer &instance_buffer,
-                                                 const u32 instance_count) {
+void VulkanAccelerationStructure::CreateTopLevel(
+    const VulkanBuffer<BufferType::StructuredBuffer, Instance> &instance_buffer, const u32 instance_count) {
   ZoneScoped;
   VkAccelerationStructureGeometryInstancesDataKHR instances{};
   instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;

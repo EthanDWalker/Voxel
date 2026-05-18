@@ -4,10 +4,10 @@
 #define VOXEL_TREE_READ_WRITE
 #include "Include/voxel_tree.slang"
 
-[[vk::binding(4, 0)]]
+[[vk::binding(2, 0)]]
 Texture2D<float4> albedo_image_arr[];
 
-[[vk::binding(5, 0)]]
+[[vk::binding(3, 0)]]
 SamplerState albedo_image_sampler;
 
 [shader("fragment")]

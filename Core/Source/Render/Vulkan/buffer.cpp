@@ -7,17 +7,13 @@
 
 namespace Core {
 
-VulkanBuffer::~VulkanBuffer() {
-  ZoneScoped;
-  vmaDestroyBuffer(VulkanContext::allocator, obj, allocation);
-}
-void VulkanBuffer::Destroy() {
+void BaseVulkanBuffer::DestroyBase() {
   ZoneScoped;
   vmaDestroyBuffer(VulkanContext::allocator, obj, allocation);
 }
 
-void VulkanBuffer::CreateAligned(const u64 size, const VkBufferUsageFlags usage, const u64 alignment,
-                                 const bool host) {
+void BaseVulkanBuffer::CreateAlignedBase(const u64 size, const VkBufferUsageFlags usage, const u64 alignment,
+                                         const bool host) {
   ZoneScoped;
   this->usage = usage;
   this->size = size;
@@ -37,6 +33,8 @@ void VulkanBuffer::CreateAligned(const u64 size, const VkBufferUsageFlags usage,
   VK_CHECK(vmaCreateBufferWithAlignment(VulkanContext::allocator, &buffer_ci, &alloc_ci, alignment, &obj,
                                         &allocation, &info));
 
+  AttachDebugName(obj, name);
+
   if (host) {
     this->host_address = allocation->GetMappedData();
   } else if ((usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0) {
@@ -47,7 +45,7 @@ void VulkanBuffer::CreateAligned(const u64 size, const VkBufferUsageFlags usage,
   }
 }
 
-void VulkanBuffer::Create(const u64 size, const VkBufferUsageFlags usage, const bool host) {
+void BaseVulkanBuffer::CreateBase(const u64 size, const VkBufferUsageFlags usage, const bool host) {
   ZoneScoped;
   this->usage = usage;
   this->size = size;
@@ -65,6 +63,8 @@ void VulkanBuffer::Create(const u64 size, const VkBufferUsageFlags usage, const 
   VmaAllocationInfo info{};
 
   VK_CHECK(vmaCreateBuffer(VulkanContext::allocator, &buffer_ci, &alloc_ci, &obj, &allocation, &info));
+
+  AttachDebugName(obj, name);
 
   if (host) {
     this->host_address = allocation->GetMappedData();

@@ -64,6 +64,22 @@ template <typename Derived, u8 length, typename EntryType> struct vec_base {
     return final;
   }
 
+  constexpr Derived operator<<(const EntryType other) const {
+    Derived final;
+    for (u8 i = 0; i < length; i++) {
+      final[i] = Get()[i] << other;
+    }
+    return final;
+  }
+
+  constexpr Derived operator>>(const EntryType other) const {
+    Derived final;
+    for (u8 i = 0; i < length; i++) {
+      final[i] = Get()[i] >> other;
+    }
+    return final;
+  }
+
   constexpr Derived operator*(const EntryType other) const {
     Derived final;
     for (u8 i = 0; i < length; i++) {
@@ -149,8 +165,7 @@ template <typename T> struct vec<4, T> : vec_base<vec<4, T>, 4, T> {
   constexpr vec<4, T>(const T x, const T y, const T z, const T w) : x(x), y(y), z(z), w(w) {}
 };
 
-template <u8 length, typename T>
-constexpr const f32 Dot(const vec<length, T> v0, const vec<length, T> v1) {
+template <u8 length, typename T> constexpr const f32 Dot(const vec<length, T> v0, const vec<length, T> v1) {
   f32 total = 0;
   for (u8 i = 0; i < length; i++) {
     total += v0[i] * v1[i];
@@ -206,8 +221,7 @@ constexpr vec<length, T> Min(const vec<length, T> v0, const vec<length, T> v1) {
   return final;
 }
 
-template <u8 length, typename T>
-constexpr T MaxElement(const vec<length, T> v) {
+template <u8 length, typename T> constexpr T MaxElement(const vec<length, T> v) {
   T final = std::numeric_limits<T>::min();
   for (u8 i = 0; i < length; i++) {
     final = v[i] > final ? v[i] : final;

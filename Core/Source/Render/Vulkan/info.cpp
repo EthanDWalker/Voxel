@@ -22,13 +22,13 @@ VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspect_mask) {
   return info;
 }
 
-VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore) {
+VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore, u32 value) {
   ZoneScoped;
   VkSemaphoreSubmitInfo info{};
   info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
   info.semaphore = semaphore;
   info.stageMask = stage_mask;
-  info.value = 1;
+  info.value = value;
   return info;
 }
 
@@ -41,22 +41,21 @@ VkCommandBufferSubmitInfo CommandBufferSubmitInfo(VkCommandBuffer cmd) {
 }
 
 VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo *cmd,
-                         VkSemaphoreSubmitInfo *signal_semaphore_info,
-                         VkSemaphoreSubmitInfo *wait_semaphore_info) {
+                         const std::vector<VkSemaphoreSubmitInfo> &signal_semaphore_info,
+                         const std::vector<VkSemaphoreSubmitInfo> &wait_semaphore_info) {
   ZoneScoped;
   VkSubmitInfo2 info{};
   info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
   info.pCommandBufferInfos = cmd;
   info.commandBufferInfoCount = 1;
-  info.pSignalSemaphoreInfos = signal_semaphore_info;
-  info.signalSemaphoreInfoCount = signal_semaphore_info ? 1 : 0;
-  info.pWaitSemaphoreInfos = wait_semaphore_info;
-  info.waitSemaphoreInfoCount = wait_semaphore_info ? 1 : 0;
+  info.pSignalSemaphoreInfos = signal_semaphore_info.data();
+  info.signalSemaphoreInfoCount = signal_semaphore_info.size();
+  info.pWaitSemaphoreInfos = wait_semaphore_info.data();
+  info.waitSemaphoreInfoCount = wait_semaphore_info.size();
   return info;
 }
 
-VkImageCreateInfo ImageCI(VkFormat format, VkImageUsageFlags usage_flags, Vec3u32 extent,
-                          u32 mip_levels) {
+VkImageCreateInfo ImageCI(VkFormat format, VkImageUsageFlags usage_flags, Vec3u32 extent, u32 mip_levels) {
   ZoneScoped;
   VkImageCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -87,8 +86,8 @@ VkImageViewCreateInfo ImageViewCI(VkFormat format, VkImage image, u32 mip_levels
   return info;
 }
 
-VkRenderingAttachmentInfo AttachmentInfo(VkImageView view, VkImageView resolve_view,
-                                         VkClearValue *clear, VkImageLayout layout) {
+VkRenderingAttachmentInfo AttachmentInfo(VkImageView view, VkImageView resolve_view, VkClearValue *clear,
+                                         VkImageLayout layout) {
   ZoneScoped;
   VkRenderingAttachmentInfo info{};
   info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -108,8 +107,7 @@ VkRenderingAttachmentInfo AttachmentInfo(VkImageView view, VkImageView resolve_v
 }
 
 VkRenderingAttachmentInfo DepthAttachmentInfo(VkImageView image_view, VkImageLayout layout,
-                                              VkAttachmentLoadOp load_op,
-                                              VkAttachmentStoreOp store_op) {
+                                              VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op) {
   ZoneScoped;
   VkRenderingAttachmentInfo info{};
   info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -121,8 +119,7 @@ VkRenderingAttachmentInfo DepthAttachmentInfo(VkImageView image_view, VkImageLay
   return info;
 }
 
-VkRenderingInfo RenderingInfo(Vec3u32 render_extent,
-                              std::span<VkRenderingAttachmentInfo> color_attachments,
+VkRenderingInfo RenderingInfo(Vec3u32 render_extent, std::span<VkRenderingAttachmentInfo> color_attachments,
                               VkRenderingAttachmentInfo *depth_attachment) {
   ZoneScoped;
   VkRenderingInfo info{};

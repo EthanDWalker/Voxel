@@ -4,7 +4,6 @@
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/info.h"
 #include "Core/Render/Vulkan/util.h"
-#include "Core/Render/frame.h"
 #include "VkBootstrap.h"
 
 namespace Core {
@@ -18,6 +17,7 @@ VulkanSwapchain::~VulkanSwapchain() {
     vkDestroySemaphore(VulkanContext::device, render_semaphores[i], nullptr);
     vkDestroyFence(VulkanContext::device, render_fences[i], nullptr);
   }
+  vkDestroySemaphore(VulkanContext::device, frame_number_semaphore, nullptr);
 }
 
 void VulkanSwapchain::Create(Vec2u32 extent) {
@@ -27,8 +27,6 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
       VulkanContext::device,
       VulkanContext::surface,
   };
-
-  this->format = VK_FORMAT_B8G8R8A8_UNORM;
 
   vkb::Swapchain vkb_swapchain =
       swapchain_builder
@@ -56,6 +54,14 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
   for (u64 i = 0; i < FRAME_OVERLAP; i++) {
     this->images[i].obj = images[i];
     this->images[i].view = image_views[i];
+    this->images[i].access_mask = 0;
+    this->images[i].pipeline_stage_mask = 0;
+    this->images[i].layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    this->images[i].depth = 1;
+    this->images[i].width = extent.x;
+    this->images[i].height = extent.y;
+    this->images[i].format = this->format;
+
     command_pools[i].Create(VulkanContext::graphics_queue_index);
     command_buffers[i].CreatePrimary(command_pools[i]);
 
@@ -64,6 +70,19 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
     VK_CHECK(vkCreateSemaphore(VulkanContext::device, &semaphore_ci, nullptr, &render_semaphores[i]));
 
     VK_CHECK(vkCreateSemaphore(VulkanContext::device, &semaphore_ci, nullptr, &swapchain_semaphores[i]));
+  }
+
+  {
+    VkSemaphoreTypeCreateInfo type_info{};
+    type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    type_info.initialValue = 0;
+
+    VkSemaphoreCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    create_info.pNext = &type_info;
+
+    vkCreateSemaphore(VulkanContext::device, &create_info, nullptr, &frame_number_semaphore);
   }
 }
 
@@ -75,8 +94,6 @@ void VulkanSwapchain::Resize(Vec2u32 extent) {
       VulkanContext::device,
       VulkanContext::surface,
   };
-
-  this->format = VK_FORMAT_B8G8R8A8_UNORM;
 
   vkDeviceWaitIdle(VulkanContext::device);
 
@@ -104,12 +121,18 @@ void VulkanSwapchain::Resize(Vec2u32 extent) {
 
     this->images[i].obj = images[i];
     this->images[i].view = image_views[i];
+    this->images[i].access_mask = 0;
+    this->images[i].pipeline_stage_mask = 0;
+    this->images[i].layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    this->images[i].depth = 1;
+    this->images[i].width = extent.x;
+    this->images[i].height = extent.y;
+    this->images[i].format = this->format;
   }
 }
 
 void VulkanSwapchain::AcquireNextImage(bool &resize) {
   ZoneScoped;
-  u32 frame_index = frame_number % FRAME_OVERLAP;
 
   VK_CHECK(vkWaitForFences(VulkanContext::device, 1, &render_fences[frame_index], VK_TRUE,
                            std::numeric_limits<u32>::max()));
@@ -129,13 +152,11 @@ void VulkanSwapchain::AcquireNextImage(bool &resize) {
 
 VulkanCommandBuffer &VulkanSwapchain::GetActiveCommandBuffer() {
   ZoneScoped;
-  u32 frame_index = frame_number % FRAME_OVERLAP;
   return command_buffers[frame_index];
 }
 
 void VulkanSwapchain::BeginCommandBuffer() {
   ZoneScoped;
-  u32 frame_index = frame_number % FRAME_OVERLAP;
 
   VK_CHECK(vkResetCommandPool(VulkanContext::device, command_pools[frame_index].obj, 0));
 
@@ -144,11 +165,19 @@ void VulkanSwapchain::BeginCommandBuffer() {
 
 void VulkanSwapchain::SubmitCommandBuffer() {
   ZoneScoped;
-  u32 frame_index = frame_number % FRAME_OVERLAP;
 
   VkImageMemoryBarrier2 image_barrier{};
   image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+
+  image_barrier.srcAccessMask = images[image_index].access_mask;
+  image_barrier.dstAccessMask = 0;
+
+  image_barrier.srcStageMask = images[image_index].pipeline_stage_mask;
+  image_barrier.dstStageMask = 0;
+
+  image_barrier.oldLayout = images[image_index].layout;
   image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
   image_barrier.image = images[image_index].obj;
   image_barrier.subresourceRange = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
@@ -157,19 +186,27 @@ void VulkanSwapchain::SubmitCommandBuffer() {
   dep_info.imageMemoryBarrierCount = 1;
   dep_info.pImageMemoryBarriers = &image_barrier;
 
+  images[image_index].layout = image_barrier.newLayout;
+  images[image_index].pipeline_stage_mask = image_barrier.dstStageMask;
+  images[image_index].access_mask = image_barrier.dstAccessMask;
+
   vkCmdPipelineBarrier2(command_buffers[frame_index].obj, &dep_info);
 
   command_buffers[frame_index].End();
 
   VkCommandBufferSubmitInfo cmd_submit_info = CommandBufferSubmitInfo(command_buffers[frame_index].obj);
 
-  VkSemaphoreSubmitInfo wait_semaphore_info = SemaphoreSubmitInfo(
-      VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, swapchain_semaphores[frame_index]);
+  const std::vector<VkSemaphoreSubmitInfo> wait_semaphore_info = {
+      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, swapchain_semaphores[frame_index]),
+      // SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame_number_semaphore, frame_number),
+  };
 
-  VkSemaphoreSubmitInfo signal_semaphore_info =
-      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, render_semaphores[frame_index]);
+  const std::vector<VkSemaphoreSubmitInfo> signal_semaphore_info = {
+      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, render_semaphores[frame_index]),
+      // SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame_number_semaphore, frame_number + 1),
+  };
 
-  VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, &signal_semaphore_info, &wait_semaphore_info);
+  const VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, signal_semaphore_info, wait_semaphore_info);
 
   std::lock_guard<std::mutex> lock(VulkanContext::graphics_queue_mutex);
   VK_CHECK(vkQueueSubmit2(VulkanContext::graphics_queue, 1, &submit_info, render_fences[frame_index]));
@@ -177,7 +214,6 @@ void VulkanSwapchain::SubmitCommandBuffer() {
 
 void VulkanSwapchain::Present(bool &resize) {
   ZoneScoped;
-  u32 frame_index = frame_number % FRAME_OVERLAP;
 
   VkPresentInfoKHR present_info{};
   present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -196,6 +232,7 @@ void VulkanSwapchain::Present(bool &resize) {
   VK_CHECK(e);
 
   resize = false;
+  frame_index = (frame_index + 1) % FRAME_OVERLAP;
   frame_number++;
 }
 

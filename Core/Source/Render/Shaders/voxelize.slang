@@ -3,21 +3,15 @@
 #include "Include/voxel_tree.slang"
 
 [[vk::binding(0, 0)]]
-StructuredBuffer<uint32_t> mesh_triangle_offsets;
-
-[[vk::binding(1, 0)]]
 RWStructuredBuffer<Vertex> vertex_arr[];
 
-[[vk::binding(2, 0)]]
+[[vk::binding(1, 0)]]
 StructuredBuffer<uint32_t> index_arr[];
 
-[[vk::binding(3, 0)]]
-StructuredBuffer<uint32_t> triangle_voxelized_depth_arr[];
-
-[[vk::binding(4, 0)]]
+[[vk::binding(2, 0)]]
 Texture2D<float4> albedo_image_arr[];
 
-[[vk::binding(5, 0)]]
+[[vk::binding(3, 0)]]
 SamplerState albedo_image_sampler;
 
 struct VertexInfo {
@@ -63,7 +57,7 @@ void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInf
                                     1.0f, 1.0f);
     voxelize_info.uv = float16_t2(input[i].uv);
     voxelize_info.world_position = input[i].position;
-    voxelize_info.normal = normal;
+    voxelize_info.normal = input[i].normal;
     output_stream.Append(voxelize_info);
   }
   output_stream.RestartStrip();

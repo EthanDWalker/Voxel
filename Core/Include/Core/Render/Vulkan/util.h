@@ -25,4 +25,6 @@ u32 CalculateMipLevels(const Vec3u32 image_extent);
 
 u32 CalculateMipLevels(const Vec2u32 image_extent);
 
+void AttachDebugName(const VkBuffer buffer, const char *const name);
+
 } // namespace Core

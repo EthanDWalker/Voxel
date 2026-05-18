@@ -60,7 +60,7 @@ template <> struct PipelineBuilder<PipelineType::Raytrace> {
   void SetMaxRecursion(const u8 value) { max_recursion = value; }
 
   void AddPushConstantRange(u32 size);
-  void AddDescriptor(const VulkanDescriptor &descriptor);
+  void AddDescriptorLayout(const VulkanDescriptorLayout &descriptor_layout);
 
   void Build(VulkanPipeline<PipelineType::Raytrace> &pipeline, VulkanShaderBindingTable &binding_table);
 };
@@ -73,7 +73,7 @@ template <> struct PipelineBuilder<PipelineType::Compute> {
   void SetShader(const std::filesystem::path &comp) { shader_src = comp; }
 
   void AddPushConstantRange(u32 size);
-  void AddDescriptor(const VulkanDescriptor &descriptor);
+  void AddDescriptorLayout(const VulkanDescriptorLayout &descriptor_layout);
 
   void Build(VulkanPipeline<PipelineType::Compute> &pipeline);
 };
@@ -149,7 +149,7 @@ template <> struct PipelineBuilder<PipelineType::Graphic> {
 
   void AddPushConstantRange(VkShaderStageFlags stage_flags, u32 size);
 
-  void AddDescriptor(const VulkanDescriptor &descriptor);
+  void AddDescriptorLayout(const VulkanDescriptorLayout &descriptor_layout);
 
   void Build(VulkanPipeline<PipelineType::Graphic> &pipeline);
 };

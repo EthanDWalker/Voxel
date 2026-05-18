@@ -1,20 +1,12 @@
 #include "Include/camera.slang"
 #define VOXEL_TREE_SET_BINDING 2
 #include "Include/voxel_tree.slang"
-#define DENSE_SET_SET_BINDING 3
-#include "Include/dense_set.slang"
 
 [[vk::binding(1, 0)]]
 RWTexture2D<float> beam_image;
 
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
-
-[[vk::binding(0, 4)]]
-StructuredBuffer<uint32_t> mesh_triangle_offsets;
-
-[[vk::binding(3, 4)]]
-RWStructuredBuffer<uint32_t> triangle_voxelized_depth_arr[];
 
 [numthreads(8, 8, 1)]
 void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {

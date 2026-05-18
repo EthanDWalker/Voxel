@@ -54,7 +54,6 @@ uint32_t PackLeafNode(const LeafNode node) {
   value |= uint32_t(node.color.g * float((1 << 6) - 1)) << 21;
   value |= uint32_t(node.color.b * float((1 << 5) - 1)) << 16;
 
-  const float PI = 3.14159;
   const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
   value |= uint32_t(acos(node.normal.z) * phi_ratio) << 8;
 
@@ -66,8 +65,6 @@ uint32_t PackLeafNode(const LeafNode node) {
 
 LeafNode UnpackLeafNode(const uint64_t data) {
   LeafNode node;
-
-  const float PI = 3.14159f;
 
   const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
   const float theta = (((data >> 0) & 0xFF) / theta_ratio) - PI;
@@ -183,16 +180,8 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
 #endif
 // clang-format on
 
-vector<float, N> FloatDivideBy2ToN<let N : int>(const vector<float, N> x, const uint32_t n) {
-  return asfloat(asuint(x) - (n << 23));
-}
-
-vector<float, N> FloatMultiplyBy2ToN<let N : int>(const vector<float, N> x, const uint32_t n) {
-  return asfloat(asuint(x) + (n << 23));
-}
-
 static const float box_size = 1 << voxel_tree_header.box_size_exp;
-static const float grid_n = 1 << (voxel_tree_header.max_depth << 1);
+static const uint32_t grid_n = 1 << (voxel_tree_header.max_depth << 1);
 static const float voxel_size = FloatDivideBy2ToN(box_size, voxel_tree_header.max_depth << 1);
 static const float voxel_radius = sqrt(voxel_size * voxel_size * voxel_size * 0.5f);
 static const uint32_t initial_ptr_stack_depth = voxel_tree_header.max_depth - PTR_STACK_SIZE;
@@ -201,15 +190,16 @@ static const uint32_t memory_index = spirv_asm {
         result:$$uint = OpLoad builtin(LocalInvocationIndex:uint);
     };
 
+float3 GetWorldPositionCenter(const uint32_t3 tree_index) {
+  return tree_index * voxel_size + voxel_tree_header.min_bound + (voxel_size * 0.5f);
+}
+
 vector<uint32_t, N> GetTreeIndex<let N : int>(const vector<float, N> p) {
-  const vector<float, N> offset = vector<float, N>(p - voxel_tree_header.min_bound);
-  // return vector<uint32_t, N>(asfloat(asuint(offset) - (voxel_tree_header.box_size_exp << 23)) *
-  // float(grid_n));
   // clang-format off
   return vector<uint32_t, N>(
     asfloat(
       (
-        asuint(offset) - (voxel_tree_header.box_size_exp << 23)
+        asuint(vector<float, N>(p - voxel_tree_header.min_bound)) - (voxel_tree_header.box_size_exp << 23)
       ) 
         + ((voxel_tree_header.max_depth << 1) << 23)
     )
@@ -229,6 +219,32 @@ uint32_t3 GetLocalOffset(const uint32_t local_index) {
 uint32_t3 GetLocalOffset(const uint32_t3 index, const uint32_t depth) {
   return (index >> (((voxel_tree_header.max_depth - 1) - depth) << 1)) & 0x3;
 }
+
+float3 StepTreeRaySingle(const float3 position, const float3 ray_dir, const uint32_t level) {
+  const uint32_t level_shift = ((voxel_tree_header.max_depth - 1) - level) * 2;
+  const float scale = (1 << level_shift) * voxel_size;
+
+  const float3 inv_ray_dir = 1.0f / ray_dir;
+  const float3 ray_dir_step = step(0.0f, ray_dir);
+  const int32_t3 voxel_step = sign(ray_dir);
+
+  const uint32_t3 level_index = GetTreeIndex(position) >> level_shift;
+  const float3 voxel_min_bound = voxel_tree_header.min_bound + level_index * scale;
+  const float3 intersect_pos = voxel_min_bound + ray_dir_step * scale;
+
+  const float3 t_max = (intersect_pos - position) * inv_ray_dir;
+
+  const float3 mask = step(t_max, min(t_max.yzx, t_max.zxy));
+
+  const float3 neighbor_min_bound = voxel_min_bound + (voxel_step * scale * mask);
+  const float3 neighbor_max_bound = neighbor_min_bound + scale;
+
+  const float delta_t = dot(mask, t_max);
+
+  const float voxel_clamp_epsilon = 1e-3f;
+  return clamp(position + delta_t * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
+               neighbor_max_bound - voxel_clamp_epsilon);
+};
 
 float3 StepTreeRay(const float3 ray_dir_step, const float3 ray_dir, const float3 inv_ray_dir,
                    const float3 voxel_step, const float3 position, const uint32_t3 index,
@@ -294,7 +310,8 @@ struct RaycastResult {
   float3 hit_normal;
   float t;
   uint32_t3 hit_tree_index;
-  uint32_t triangle_id;
+  uint32_t leaf_ptr;
+  uint32_t hit_level;
   bool error;
   bool hit;
 };
@@ -320,7 +337,6 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
   float3 position = ray_origin + ray_dir * ray_t_min;
 
   const float3 inv_ray_dir = 1.0f / ray_dir;
-  const float3 abs_inv_ray_dir = abs(inv_ray_dir);
   const float3 ray_dir_step = step(0.0f, ray_dir);
   const int32_t3 voxel_step = sign(ray_dir);
 
@@ -331,15 +347,16 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
   BranchNode node;
   uint32_t local_index;
   uint32_t ptr;
+  uint32_t level;
 
   while (all(position >= voxel_tree_header.min_bound) &&
          all(position <= (voxel_tree_header.min_bound + box_size))) {
     const uint32_t3 index_diff = last_index ^ current_index;
     const uint32_t invalidated_stack_size = firstbithigh(index_diff.x | index_diff.y | index_diff.z) >> 1;
 
-    uint32_t level = invalidated_stack_size < PTR_STACK_SIZE
-                         ? initial_ptr_stack_depth + ((PTR_STACK_SIZE - 1) - invalidated_stack_size)
-                         : 1;
+    level = invalidated_stack_size < PTR_STACK_SIZE
+                ? initial_ptr_stack_depth + ((PTR_STACK_SIZE - 1) - invalidated_stack_size)
+                : 1;
     ptr = invalidated_stack_size < PTR_STACK_SIZE
               ? ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth]
               : GetLocalIndex(current_index, 0);
@@ -373,6 +390,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
 
   result.hit_position = position;
   result.hit_tree_index = current_index;
+  result.hit_level = level;
 
   ptr = node.child_ptr_data.child_ptr + local_index;
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
@@ -381,6 +399,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
   const LeafNode leaf_node = UnpackLeafNode(voxel_tree_leaf[page_index][page_offset].data);
   result.hit_color = leaf_node.color;
   result.hit_normal = leaf_node.normal;
+  result.leaf_ptr = ptr;
 }
 
 #endif

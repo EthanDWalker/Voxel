@@ -27,6 +27,9 @@ struct BaseVulkanImage {
   VmaAllocation allocation = VK_NULL_HANDLE;
   VkFormat format = VK_FORMAT_UNDEFINED;
   VkImageUsageFlags usage = static_cast<VkImageUsageFlags>(0);
+  VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+  VkPipelineStageFlags2 pipeline_stage_mask = VK_PIPELINE_STAGE_2_NONE;
+  VkAccessFlags2 access_mask = VK_ACCESS_2_NONE;
   u32 width = 0;
   u32 height = 0;
   u32 depth = 0;

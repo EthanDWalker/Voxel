@@ -15,7 +15,9 @@ struct alignas(GPU_ALIGNMENT) AllocateInfo {
 };
 
 struct alignas(GPU_ALIGNMENT) Vertex {
-  Vec3f32 position;
+  vec<4, f16> position;
+  u16 normal;
+  u16 _p0;
   vec<2, f16> uv;
 };
 
@@ -55,6 +57,11 @@ struct alignas(GPU_ALIGNMENT) RaycastResult {
   Vec3u32 hit_tree_index;
   bool error;
   bool hit;
+};
+
+struct IndirectLightingRayDispatch {
+  u32 frame_sample_count;
+  u32 leaf_ptr;
 };
 
 struct Mesh {

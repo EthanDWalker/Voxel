@@ -25,8 +25,8 @@ void Editor::StartUp() {
   Core::FlushAddInstanceCmds();
 
   const Core::DirectionalLight dir_light = {
-      .direction = Normalize(Vec3f32(-0.2f, -1.0f, -0.1f)),
-      .intesity = 1.0f,
+      .direction = Normalize(Vec3f32(-0.0f, -1.0f, -0.0f) + 1e-3f),
+      .intesity = 8.0f,
       .color = Vec3f32(1.0f),
   };
 
@@ -37,7 +37,6 @@ void Editor::StartUp() {
 
   Core::Log("branch voxel count {} (pages {})", tree_header->branch_count, tree.branch_pages.size());
   Core::Log("leaf count {} (pages {})", tree_header->leaf_count, tree.leaf_pages.size());
-  Core::Log("triangle count {}", Core::render_context->total_triangles);
 
   Core::AddDirectionalLight(dir_light);
 }
@@ -97,7 +96,7 @@ void Editor::Run() {
     else
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
 
-    if (Core::InputContext::GetPressed(Core::Input::MOUSE_LEFT) && false) {
+    if (Core::InputContext::GetPressed(Core::Input::MOUSE_LEFT)) {
       Core::Raycast query{};
       query.origin = camera.position;
 

@@ -4,7 +4,6 @@
 #include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/image_util.h"
-#include "Core/Render/Vulkan/indirect_draw.h"
 #include "Core/Render/Vulkan/info.h"
 #include "Core/Render/types.h"
 #include <vector>
@@ -29,7 +28,7 @@ struct BaseVulkanSubPass {
     static_assert(false, "Unsupported type");
   }
 
-  VkBufferMemoryBarrier2 &NewBufferBarrier(const VulkanBuffer &buffer) {
+  VkBufferMemoryBarrier2 &NewBufferBarrier(const BaseVulkanBuffer &buffer) {
     VkBufferMemoryBarrier2 &barrier = buffer_barriers.emplace_back();
     barrier = {};
     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
@@ -37,6 +36,8 @@ struct BaseVulkanSubPass {
     barrier.size = buffer.size;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcAccessMask = buffer.access_mask;
+    barrier.srcStageMask = buffer.pipeline_stage_mask;
     return barrier;
   }
 
@@ -46,6 +47,9 @@ struct BaseVulkanSubPass {
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcAccessMask = image.access_mask;
+    barrier.srcStageMask = image.pipeline_stage_mask;
+    barrier.oldLayout = image.layout;
     barrier.image = image.obj;
     barrier.subresourceRange = ImageSubresourceRange(IsDepthFormat(image.format) ? VK_IMAGE_ASPECT_DEPTH_BIT
                                                                                  : VK_IMAGE_ASPECT_COLOR_BIT);
@@ -65,7 +69,7 @@ struct BaseVulkanSubPass {
 };
 
 template <> struct VulkanSubPass<SubPassType::Raytrace> : BaseVulkanSubPass {
-  template <DeviceResourceType T> void AddDependency(const VulkanBuffer &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanBuffer &object) {
     VkBufferMemoryBarrier2 &barrier = NewBufferBarrier(object);
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
 
@@ -76,15 +80,12 @@ template <> struct VulkanSubPass<SubPassType::Raytrace> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
+
+    object.pipeline_stage_mask = barrier.dstStageMask;
+    object.access_mask = barrier.dstAccessMask;
   }
 
-  void AddDependency(const VulkanAccelerationStructure &object) {
-    VkMemoryBarrier2 &barrier = NewMemoryBarrier();
-    barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-  }
-
-  template <DeviceResourceType T> void AddDependency(const BaseVulkanImage &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanImage &object) {
     VkImageMemoryBarrier2 &barrier = NewImageBarrier(object);
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
 
@@ -100,11 +101,15 @@ template <> struct VulkanSubPass<SubPassType::Raytrace> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
+
+    object.layout = barrier.newLayout;
+    object.access_mask = barrier.dstAccessMask;
+    object.pipeline_stage_mask = barrier.dstStageMask;
   }
 };
 
 template <> struct VulkanSubPass<SubPassType::Compute> : BaseVulkanSubPass {
-  template <DeviceResourceType T> void AddDependency(const VulkanBuffer &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanBuffer &object) {
     VkBufferMemoryBarrier2 &barrier = NewBufferBarrier(object);
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
@@ -115,9 +120,12 @@ template <> struct VulkanSubPass<SubPassType::Compute> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
+
+    object.pipeline_stage_mask = barrier.dstStageMask;
+    object.access_mask = barrier.dstAccessMask;
   }
 
-  template <DeviceResourceType T> void AddDependency(const BaseVulkanImage &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanImage &object) {
     VkImageMemoryBarrier2 &barrier = NewImageBarrier(object);
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
@@ -133,16 +141,15 @@ template <> struct VulkanSubPass<SubPassType::Compute> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
-  }
 
-  template <DeviceResourceType T> void AddDependency(const VulkanIndirectDrawCommand &object) {
-    AddDependency<T>(object.draw_count_buffer);
-    AddDependency<T>(object.draw_buffer);
+    object.layout = barrier.newLayout;
+    object.access_mask = barrier.dstAccessMask;
+    object.pipeline_stage_mask = barrier.dstStageMask;
   }
 };
 
 template <> struct VulkanSubPass<SubPassType::Graphic> : BaseVulkanSubPass {
-  template <DeviceResourceType T> void AddDependency(const VulkanBuffer &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanBuffer &object) {
     VkBufferMemoryBarrier2 &barrier = NewBufferBarrier(object);
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
                            VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT;
@@ -157,9 +164,12 @@ template <> struct VulkanSubPass<SubPassType::Graphic> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
+
+    object.pipeline_stage_mask = barrier.dstStageMask;
+    object.access_mask = barrier.dstAccessMask;
   }
 
-  template <DeviceResourceType T> void AddDependency(const BaseVulkanImage &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanImage &object) {
     VkImageMemoryBarrier2 &barrier = NewImageBarrier(object);
 
     if constexpr (T == DeviceResourceType::SampledImage) {
@@ -185,31 +195,15 @@ template <> struct VulkanSubPass<SubPassType::Graphic> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
-  }
 
-  template <DeviceResourceType T> void AddDependency(const VulkanIndirectDrawCommand &object) {
-    VkBufferMemoryBarrier2 &barrier = NewBufferBarrier(object.draw_buffer);
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-
-    if constexpr (T == DeviceResourceType::Buffer) {
-      barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-    } else {
-      static_assert(false, "Unsupported dependency type");
-    }
-
-    VkBufferMemoryBarrier2 &count_barrier = NewBufferBarrier(object.draw_count_buffer);
-    count_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-
-    if constexpr (T == DeviceResourceType::Buffer) {
-      count_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-    } else {
-      static_assert(false, "Unsupported dependency type");
-    }
+    object.layout = barrier.newLayout;
+    object.access_mask = barrier.dstAccessMask;
+    object.pipeline_stage_mask = barrier.dstStageMask;
   }
 };
 
 template <> struct VulkanSubPass<SubPassType::Transfer> : BaseVulkanSubPass {
-  template <DeviceResourceType T> void AddDependency(const VulkanBuffer &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanBuffer &object) {
     VkBufferMemoryBarrier2 &barrier = NewBufferBarrier(object);
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
@@ -220,9 +214,12 @@ template <> struct VulkanSubPass<SubPassType::Transfer> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
+
+    object.pipeline_stage_mask = barrier.dstStageMask;
+    object.access_mask = barrier.dstAccessMask;
   }
 
-  template <DeviceResourceType T> void AddDependency(const BaseVulkanImage &object) {
+  template <DeviceResourceType T> void AddDependency(BaseVulkanImage &object) {
     VkImageMemoryBarrier2 &barrier = NewImageBarrier(object);
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
@@ -235,11 +232,10 @@ template <> struct VulkanSubPass<SubPassType::Transfer> : BaseVulkanSubPass {
     } else {
       static_assert(false, "Unsupported dependency type");
     }
-  }
 
-  template <DeviceResourceType T> void AddDependency(const VulkanIndirectDrawCommand &object) {
-    AddDependency<T>(object.draw_count_buffer);
-    AddDependency<T>(object.draw_buffer);
+    object.layout = barrier.newLayout;
+    object.access_mask = barrier.dstAccessMask;
+    object.pipeline_stage_mask = barrier.dstStageMask;
   }
 };
 } // namespace Core

@@ -3,14 +3,18 @@
 #include "volk.h"
 
 namespace Core {
+
+struct FrameData {
+  u32 frame_index;
+};
 struct VulkanSwapchain {
   VulkanSwapchain() = default;
 
   VulkanSwapchain(const VulkanSwapchain &) = delete;
   VulkanSwapchain &operator=(const VulkanSwapchain &) = delete;
 
-  VulkanSwapchain(VulkanSwapchain &&) = default;
-  VulkanSwapchain &operator=(VulkanSwapchain &&) = default;
+  VulkanSwapchain(VulkanSwapchain &&) = delete;
+  VulkanSwapchain &operator=(VulkanSwapchain &&) = delete;
 
   static const u8 FRAME_OVERLAP = 3;
 
@@ -20,14 +24,17 @@ struct VulkanSwapchain {
   VkSemaphore swapchain_semaphores[FRAME_OVERLAP];
   VkSemaphore render_semaphores[FRAME_OVERLAP];
   VkFence render_fences[FRAME_OVERLAP];
-  VkSwapchainKHR obj;
-  VkFormat format;
-  Vec2u32 extent;
-  u32 frame_number;
-  u32 image_index;
+  VkSemaphore frame_number_semaphore;
 
-  void Create(Vec2u32 extent);
-  void Resize(Vec2u32 extent);
+  VkSwapchainKHR obj;
+  VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
+  Vec2u32 extent;
+  u32 frame_index = 0;
+  u32 image_index;
+  u32 frame_number = 0;
+
+  void Create(const Vec2u32 extent);
+  void Resize(const Vec2u32 extent);
 
   void AcquireNextImage(bool &resize);
   void BeginCommandBuffer();

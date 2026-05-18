@@ -1,5 +1,5 @@
 #include "Core/Render/add.h"
-#include "Core/Render/Vulkan/acceleration_structure.h"
+#include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/command_buffer.h"
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/image.h"
@@ -8,15 +8,15 @@
 #include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
 #include "Core/Util/Parse/gltf.h"
-#include <cstring>
 #include <memory>
 
 namespace Core {
 u32 AddDirectionalLight(const DirectionalLight &dir_light) {
   ZoneScoped;
-  VulkanBuffer staging_buffer = "directional light staging buffer";
-  staging_buffer.Create(sizeof(DirectionalLight), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, /*host=*/true);
-  memcpy(staging_buffer.host_address, &dir_light, sizeof(DirectionalLight));
+  VulkanBuffer<BufferType::StagingBuffer> staging_buffer = "directional light staging buffer";
+  staging_buffer.BuildAddStagingBinding(sizeof(DirectionalLight));
+  staging_buffer.Build();
+  staging_buffer.IncrementMemory(&dir_light, sizeof(DirectionalLight));
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     cmd.UploadBufferToBuffer(
@@ -185,7 +185,7 @@ void VoxelizeMesh(const Mesh &mesh, const u32 max_depth) {
 Mesh AddMesh(const MeshData &mesh_data) {
   ZoneScoped;
 
-  const u32 max_depth = SparseVoxelTree::MAX_DEPTH - 2;
+  const u32 max_depth = SparseVoxelTree::MAX_DEPTH;
 
   VkPhysicalDeviceAccelerationStructurePropertiesKHR properties{};
   properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
@@ -196,25 +196,19 @@ Mesh AddMesh(const MeshData &mesh_data) {
 
   vkGetPhysicalDeviceProperties2(VulkanContext::physical_device, &device_properties);
 
-  VulkanBuffer &vertex_buffer =
-      *render_context->vertex_buffers.emplace_back(std::make_unique<VulkanBuffer>("vertex buffer"));
-  VulkanBuffer &index_buffer =
-      *render_context->index_buffers.emplace_back(std::make_unique<VulkanBuffer>("index buffer"));
-  VulkanBuffer &triangle_voxelized_depth_buffer =
-      *render_context->triangle_voxelized_depth_buffers.emplace_back(
-          std::make_unique<VulkanBuffer>("triangle voxelized depth buffer"));
+  auto &vertex_buffer = *render_context->vertex_buffers.emplace_back(
+      std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, Vertex>>("vertex buffer"));
+  auto &index_buffer = *render_context->index_buffers.emplace_back(
+      std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, Index>>("index buffer"));
 
-  vertex_buffer.Create(mesh_data.vertex_host_buffer->size,
+  vertex_buffer.Create(mesh_data.vertex_count,
                        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
                            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-  index_buffer.Create(mesh_data.index_host_buffer->size,
+  index_buffer.Create(mesh_data.index_count,
                       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                           VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-  const u32 triangle_count = mesh_data.index_host_buffer->size / (sizeof(Index) * 3);
-  triangle_voxelized_depth_buffer.Create(triangle_count * sizeof(u32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                                                           VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   VulkanImage<ImageType::Planar> &albedo_image =
       *render_context->albedo_images.emplace_back(std::make_unique<VulkanImage<ImageType::Planar>>());
@@ -223,10 +217,10 @@ Mesh AddMesh(const MeshData &mesh_data) {
 
   const u64 albedo_image_data_size =
       mesh_data.material.albedo_extent.width * mesh_data.material.albedo_extent.height * 4;
-  VulkanBuffer albedo_staging_buffer = "image data staging buffer";
-  constexpr bool host = true;
-  albedo_staging_buffer.Create(albedo_image_data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, host);
-  memcpy(albedo_staging_buffer.host_address, mesh_data.material.albedo_data, albedo_image_data_size);
+  VulkanBuffer<BufferType::StagingBuffer> albedo_staging_buffer = "image data staging buffer";
+  albedo_staging_buffer.BuildAddStagingBinding(albedo_image_data_size);
+  albedo_staging_buffer.Build();
+  albedo_staging_buffer.IncrementMemory(mesh_data.material.albedo_data, albedo_image_data_size);
 
   const u32 mesh_index = render_context->mesh_count;
   render_context->mesh_count++;
@@ -239,7 +233,6 @@ Mesh AddMesh(const MeshData &mesh_data) {
 
     transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(*mesh_data.index_host_buffer);
     transfer_pass.AddDependency<DeviceResourceType::TransferDst>(index_buffer);
-    transfer_pass.AddDependency<DeviceResourceType::TransferDst>(triangle_voxelized_depth_buffer);
 
     transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(albedo_staging_buffer);
     transfer_pass.AddDependency<DeviceResourceType::TransferDst>(albedo_image);
@@ -250,27 +243,16 @@ Mesh AddMesh(const MeshData &mesh_data) {
                              mesh_data.vertex_host_buffer->size);
     cmd.UploadBufferToBuffer(*mesh_data.index_host_buffer, index_buffer, mesh_data.index_host_buffer->size);
     cmd.UploadBufferToImage(albedo_staging_buffer, albedo_image);
-    cmd.FillBuffer(render_context->mesh_triangle_offset_buffer, sizeof(u32), render_context->total_triangles,
-                   sizeof(u32) * mesh_index);
-    cmd.FillBuffer(triangle_voxelized_depth_buffer, triangle_voxelized_depth_buffer.size, 0);
   });
-
-  render_context->bottom_level_acceleration_structures
-      .emplace_back(std::make_unique<VulkanAccelerationStructure>())
-      ->CreateBottomLevel(vertex_buffer, index_buffer);
-
-  render_context->total_triangles += triangle_count;
 
   Mesh mesh;
   mesh.id = mesh_index;
   mesh.vertex_count = mesh_data.vertex_count;
   mesh.index_count = mesh_data.index_count;
 
-  render_context->mesh_descriptor.Update<DeviceResourceType::Buffer>(1, &vertex_buffer, mesh_index);
-  render_context->mesh_descriptor.Update<DeviceResourceType::Buffer>(2, &index_buffer, mesh_index);
-  render_context->mesh_descriptor.Update<DeviceResourceType::Buffer>(3, &triangle_voxelized_depth_buffer,
-                                                                     mesh_index);
-  render_context->mesh_descriptor.Update<DeviceResourceType::SampledImage>(4, &albedo_image, mesh_index);
+  render_context->mesh_descriptor.Update<DeviceResourceType::Buffer>(0, &vertex_buffer, mesh_index);
+  render_context->mesh_descriptor.Update<DeviceResourceType::Buffer>(1, &index_buffer, mesh_index);
+  render_context->mesh_descriptor.Update<DeviceResourceType::SampledImage>(2, &albedo_image, mesh_index);
 
   VoxelizeMesh(mesh, max_depth);
 

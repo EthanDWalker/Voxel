@@ -39,4 +39,14 @@ u32 CalculateMipLevels(const Vec2u32 image_extent) {
   ZoneScoped;
   return u32(std::floor(std::log2(std::max(image_extent.width, image_extent.height)))) + 1;
 }
+
+void AttachDebugName(const VkBuffer buffer, const char *const name) {
+  VkDebugUtilsObjectNameInfoEXT name_info = {};
+  name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+  name_info.objectType = VK_OBJECT_TYPE_BUFFER;
+  name_info.objectHandle = (u64)buffer;
+  name_info.pObjectName = name;
+
+  vkSetDebugUtilsObjectNameEXT(VulkanContext::device, &name_info);
+}
 } // namespace Core

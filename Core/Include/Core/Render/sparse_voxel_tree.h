@@ -14,7 +14,7 @@ struct SparseVoxelTree {
   static const u32 SENTINAL = 0xFFFFFFFF;
 
   static const u32 MAX_PAGES = 100'000;
-  static const u32 MAX_DEPTH = 7;
+  static const u32 MAX_DEPTH = 5;
 
   static const u32 PAGE_SIZE_EXP = 17;
   static const u32 PAGE_SIZE = 1 << PAGE_SIZE_EXP;
@@ -50,12 +50,13 @@ struct SparseVoxelTree {
     u32 branch_count;
   };
 
-  std::vector<std::unique_ptr<VulkanBuffer>> branch_pages;
-  std::vector<std::unique_ptr<VulkanBuffer>> leaf_pages;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>> branch_pages;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, LeafNode>>> leaf_pages;
+  VulkanDescriptorLayout descriptor_layout;
   VulkanDescriptor descriptor;
-  VulkanBuffer tree_header_buffer = "tree header buffer";
-  VulkanBuffer tree_header_host_buffer = "tree header host buffer";
-  VulkanBuffer empty_page_host_buffer = "empty page buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, TreeHeader> tree_header_buffer = "tree header buffer";
+  VulkanBuffer<BufferType::StagingBuffer> tree_header_host_buffer = "tree header host buffer";
+  VulkanBuffer<BufferType::StagingBuffer> empty_page_host_buffer = "empty page buffer";
 
   SparseVoxelTree();
 

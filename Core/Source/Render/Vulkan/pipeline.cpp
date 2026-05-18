@@ -164,9 +164,10 @@ void PipelineBuilder<PipelineType::Compute>::AddPushConstantRange(u32 size) {
   push_constant_ranges.push_back(range);
 }
 
-void PipelineBuilder<PipelineType::Compute>::AddDescriptor(const VulkanDescriptor &descriptor) {
+void PipelineBuilder<PipelineType::Compute>::AddDescriptorLayout(
+    const VulkanDescriptorLayout &descriptor_layout) {
   ZoneScoped;
-  descriptor_set_layouts.push_back(descriptor.layout);
+  descriptor_set_layouts.push_back(descriptor_layout.obj);
 }
 
 void PipelineBuilder<PipelineType::Compute>::Build(VulkanPipeline<PipelineType::Compute> &pipeline) {
@@ -343,9 +344,10 @@ void PipelineBuilder<PipelineType::Graphic>::AddPushConstantRange(VkShaderStageF
   push_constant_ranges.push_back(range);
 }
 
-void PipelineBuilder<PipelineType::Graphic>::AddDescriptor(const VulkanDescriptor &descriptor) {
+void PipelineBuilder<PipelineType::Graphic>::AddDescriptorLayout(
+    const VulkanDescriptorLayout &descriptor_layout) {
   ZoneScoped;
-  descriptor_set_layouts.push_back(descriptor.layout);
+  descriptor_set_layouts.push_back(descriptor_layout.obj);
 }
 
 void PipelineBuilder<PipelineType::Graphic>::SetViewportCount(u32 count) {
@@ -453,8 +455,9 @@ void PipelineBuilder<PipelineType::Graphic>::Build(VulkanPipeline<PipelineType::
   }
 }
 
-void PipelineBuilder<PipelineType::Raytrace>::AddDescriptor(const VulkanDescriptor &descriptor) {
-  descriptor_set_layouts.push_back(descriptor.layout);
+void PipelineBuilder<PipelineType::Raytrace>::AddDescriptorLayout(
+    const VulkanDescriptorLayout &descriptor_layout) {
+  descriptor_set_layouts.push_back(descriptor_layout.obj);
 }
 
 void PipelineBuilder<PipelineType::Raytrace>::AddPushConstantRange(u32 size) {

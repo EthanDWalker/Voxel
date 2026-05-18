@@ -43,12 +43,12 @@ void VulkanShaderBindingTable::Create(VkPipeline pipeline,
                                                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
                                                 VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
-  ray_gen.Create(handle_size_aligned, buffer_usage_flags);
-  miss.Create(handle_size_aligned, buffer_usage_flags);
-  closest_hit.Create(handle_size_aligned, buffer_usage_flags);
+  ray_gen.CreateBase(handle_size_aligned, buffer_usage_flags);
+  miss.CreateBase(handle_size_aligned, buffer_usage_flags);
+  closest_hit.CreateBase(handle_size_aligned, buffer_usage_flags);
 
-  VulkanBuffer staging_buffer = "shader binding table staging buffer";
-  staging_buffer.Create(shader_handle_storage.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+  BaseVulkanBuffer staging_buffer = "shader binding table staging buffer";
+  staging_buffer.CreateBase(shader_handle_storage.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
   memcpy(staging_buffer.host_address, shader_handle_storage.data(), shader_handle_storage.size());
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
@@ -68,5 +68,7 @@ void VulkanShaderBindingTable::Create(VkPipeline pipeline,
   closest_hit_entry.deviceAddress = closest_hit.device_address;
   closest_hit_entry.stride = handle_size_aligned;
   closest_hit_entry.size = handle_size_aligned;
+
+  staging_buffer.DestroyBase();
 }
 } // namespace Core

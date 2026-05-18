@@ -44,18 +44,21 @@ struct VulkanCommandBuffer {
 
   void ClearPushConstants();
   void Dispatch(Vec3u32 groups);
-  void BindIndexBuffer(const VulkanBuffer &index_buffer);
-  void BindDescriptors(const std::vector<VkDescriptorSet> &descriptors);
+  void BindIndexBuffer(const BaseVulkanBuffer &index_buffer);
+  void BindDescriptors(const std::vector<VulkanDescriptor> &descriptors);
   void PushConstants(VkShaderStageFlagBits stages, u32 size, const void *data);
   void Draw(u32 vertex_count, u32 instance_count = 1, u32 vertex_offset = 0, u32 instance_offset = 0);
   void DrawIndexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0, i32 vertex_offset = 0,
                    u32 first_instance = 0);
 
-  void UploadBufferToBuffer(const VulkanBuffer &src_buffer, const VulkanBuffer &dst_buffer, const u64 size,
+  void BeginDebugPass(const char *const name);
+  void EndDebugPass();
+
+  void UploadBufferToBuffer(const BaseVulkanBuffer &src_buffer, const BaseVulkanBuffer &dst_buffer, const u64 size,
                             const u64 src_offset = 0, const u64 dst_offset = 0);
-  void FillBuffer(const VulkanBuffer &buffer, const u64 fill_size, const u32 data, const u32 offset = 0);
+  void FillBuffer(const BaseVulkanBuffer &buffer, const u64 fill_size, const u32 data, const u32 offset = 0);
   void ClearImage(const BaseVulkanImage &image);
-  void UploadBufferToImage(const VulkanBuffer &buffer, const BaseVulkanImage &image, const u32 src_offset = 0,
+  void UploadBufferToImage(const BaseVulkanBuffer &buffer, const BaseVulkanImage &image, const u32 src_offset = 0,
                            const u32 mip_level = 0);
   void Blit(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image, const u32 src_mip_level,
             const u32 dst_mip_level);
@@ -80,7 +83,5 @@ struct VulkanCommandBuffer {
     vkCmdBindPipeline(obj, bind_point, pipeline.obj);
     bound_pipeline_layout = &pipeline.layout;
   }
-
-  void DrawIndirect(const VulkanIndirectDrawCommand &command);
 };
 } // namespace Core

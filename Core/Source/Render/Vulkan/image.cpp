@@ -30,6 +30,9 @@ void BaseVulkanImage::CreateBase(const VkImageCreateInfo &image_ci, VkImageViewC
   this->height = image_ci.extent.height;
   this->depth = image_ci.extent.depth;
   this->usage = image_ci.usage;
+  this->layout = VK_IMAGE_LAYOUT_UNDEFINED;
+  this->pipeline_stage_mask = VK_PIPELINE_STAGE_2_NONE;
+  this->access_mask = VK_ACCESS_2_NONE;
 
   VmaAllocationCreateInfo alloc_info{};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
@@ -49,6 +52,9 @@ void BaseVulkanImage::CreateBaseRef(const BaseVulkanImage &base_image, VkImageVi
   this->usage = base_image.usage;
   this->allocation = base_image.allocation;
   this->obj = base_image.obj;
+  this->layout = VK_IMAGE_LAYOUT_UNDEFINED;
+  this->pipeline_stage_mask = VK_PIPELINE_STAGE_2_NONE;
+  this->access_mask = VK_ACCESS_2_NONE;
 
   image_view_ci.image = obj;
   VK_CHECK(vkCreateImageView(VulkanContext::device, &image_view_ci, nullptr, &this->view));

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Render/Vulkan/buffer.h"
+#include "Core/Render/types.h"
 #include "volk.h"
 
 namespace Core {
@@ -14,16 +15,19 @@ struct VulkanAccelerationStructure {
   VulkanAccelerationStructure &operator=(VulkanAccelerationStructure &&) = delete;
 
   VkAccelerationStructureKHR obj;
-  VulkanBuffer buffer = "acceleration structure buffer";
+  BaseVulkanBuffer buffer = "acceleration structure buffer";
 
   ~VulkanAccelerationStructure();
 
   void CreateBase(const VkAccelerationStructureGeometryKHR &geometry,
                   const VkAccelerationStructureBuildRangeInfoKHR &offset,
                   const VkAccelerationStructureTypeKHR type);
-  void CreateBottomLevel(const VulkanBuffer &vertex_buffer, const VulkanBuffer &index_buffer);
-  void CreateTopLevel(const VulkanBuffer &instance_buffer, const u32 instance_count);
+  void CreateBottomLevel(const VulkanBuffer<BufferType::StructuredBuffer, Vertex> &vertex_buffer,
+                         const VulkanBuffer<BufferType::StructuredBuffer, Index> &index_buffer);
+  void CreateTopLevel(const VulkanBuffer<BufferType::StructuredBuffer, Instance> &instance_buffer,
+                      const u32 instance_count);
 
-  void RecreateTopLevel(const VulkanBuffer &instance_buffer, const u32 instance_count);
+  void RecreateTopLevel(const VulkanBuffer<BufferType::StructuredBuffer, Instance> &instance_buffer,
+                        const u32 instance_count);
 };
 } // namespace Core

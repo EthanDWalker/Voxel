@@ -1,8 +1,11 @@
 #pragma once
 
 static const uint32_t PTR_STACK_SIZE = 4;
-static const uint32_t PREPASS_SCALE = 4;
+static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
+static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
 static const uint32_t SENTINAL = 0xFFFFFFFF;
+
+static const float PI = 3.14159f;
 
 enum Axis {
   X,
@@ -17,8 +20,26 @@ struct DirectionalLight {
 };
 
 struct Vertex {
-  float3 position;
+  uint64_t position_data;
+  uint16_t normal_data;
+  uint16_t _p0;
   uint32_t uv_data;
+
+  property float3 position {
+    get { return f16tof32(uint32_t3(position_data >> uint32_t3(32, 16, 0)) & 0xFFFF); }
+  };
+
+  property float3 normal {
+    get {
+      const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
+      const float theta = (((normal_data >> 0) & 0xFF) / theta_ratio) - PI;
+
+      const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
+      const float phi = (((normal_data >> 8) & 0xFF) / phi_ratio);
+
+      return normalize(float3(cos(phi), sin(phi) * sin(theta), sin(phi) * cos(theta)));
+    }
+  };
 
   property float2 uv {
     get { return f16tof32((uv_data >> uint32_t2(0, 16)) & 0xFFFF); }
@@ -64,15 +85,12 @@ float4 UnpackRGBA8(const uint32_t data) {
   return ((uint32_t4(data) >> uint32_t4(0, 8, 16, 24)) & uint32_t4(0xFF)) * ratio;
 }
 
-uint32_t PackNormal(const float3 normal) {
-  static const float ratio = float((1 << 10) - 1);
-  normal * 0.5f + 0.5f;
-  return SumComponents(uint32_t3((normal * 0.5f + 0.5f) * ratio) << uint32_t3(0, 10, 20));
+vector<float, N> FloatDivideBy2ToN<let N : int>(const vector<float, N> x, const uint32_t n) {
+  return asfloat(asuint(x) - (n << 23));
 }
 
-float3 UnpackNormal(const uint32_t normal_data) {
-  static const float ratio = 1.0f / float((1 << 10) - 1);
-  return ((uint32_t3(normal_data) >> uint32_t3(0, 10, 20)) & uint32_t3(0x3FF)) * ratio * 2.0f - 1.0f;
+vector<float, N> FloatMultiplyBy2ToN<let N : int>(const vector<float, N> x, const uint32_t n) {
+  return asfloat(asuint(x) + (n << 23));
 }
 
 bool RayAABBIntersect(const float3 ray_dir, const float3 ray_origin, const float3 bounds_min,
@@ -137,4 +155,39 @@ float3 GetBarycentric<let N : int>(const vector<float, N> positions[3], const ve
   coords.z = (d11 * d20 - d01 * d21) / denom;
   coords.x = 1.0f - coords.z - coords.y;
   return coords;
+}
+
+float SampleBeamImage(const uint32_t2 main_image_location, const RWTexture2D<float> beam_image) {
+  const float2 beam_image_location_float = FloatDivideBy2ToN(main_image_location, BEAM_PREPASS_SCALE_EXP);
+  const int32_t2 beam_image_location = main_image_location >> BEAM_PREPASS_SCALE_EXP;
+  const bool2 is_whole = (beam_image_location_float == float2(beam_image_location));
+
+  float t = 0.0f;
+  if (all(is_whole)) {
+    t = beam_image.Load(beam_image_location);
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
+  } else if (is_whole.x) {
+    t = beam_image.Load(beam_image_location);
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(-1, 0)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(-1, 1)));
+  } else if (is_whole.y) {
+    t = beam_image.Load(beam_image_location);
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(0, -1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, -1)));
+  } else {
+    t = beam_image.Load(beam_image_location);
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
+    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
+  }
+  t *= 0.99f;
+  return t;
 }
