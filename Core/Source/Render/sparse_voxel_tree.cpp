@@ -26,11 +26,9 @@ SparseVoxelTree::SparseVoxelTree() {
   tree_header_buffer.Create(1, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-  tree_header_host_buffer.BuildAddStagingBinding(sizeof(TreeHeader));
-  tree_header_host_buffer.Build();
+  tree_header_host_buffer.Create(sizeof(TreeHeader));
 
-  empty_page_host_buffer.BuildAddStagingBinding(sizeof(BranchNode) * PAGE_SIZE);
-  empty_page_host_buffer.Build();
+  empty_page_host_buffer.Create(sizeof(BranchNode) * PAGE_SIZE);
 
   for (u32 i = 0; i < PAGE_SIZE; i++) {
     ((BranchNode *)empty_page_host_buffer.host_address)[i] = {

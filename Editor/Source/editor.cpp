@@ -3,24 +3,35 @@
 #include "Core/Render/commands.h"
 #include "Core/Render/context.h"
 #include "Core/Render/frame.h"
+#include "Core/Render/types.h"
 #include "Core/Util/Parse/gltf.h"
 #include "Core/Util/log.h"
 #include "Core/Util/timer.h"
 #include "Core/input.h"
 #include "Core/window.h"
 #include <filesystem>
+#include <limits>
 
 void Editor::StartUp() {
   SCOPED_TIMER("START UP")
   camera.Create(Core::render_context->main_image.GetVec2u32());
 
   Core::MeshFileData mesh_file_data;
-  Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/Sponza/Sponza.glb", mesh_file_data);
+  Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro.glb", mesh_file_data);
+
+  Core::AABB aabb;
+  aabb.min = std::numeric_limits<f32>::max();
+  aabb.max = std::numeric_limits<f32>::min();
 
   for (u32 i = 0; i < mesh_file_data.mesh_data_arr.size(); i++) {
+    SCOPED_TIMER("adding mesh");
+    aabb.min = Min(mesh_file_data.mesh_data_arr[i].aabb.min, aabb.min);
+    aabb.max = Max(mesh_file_data.mesh_data_arr[i].aabb.max, aabb.max);
     const Core::Mesh mesh = Core::AddMesh(mesh_file_data.mesh_data_arr[i]);
     Core::QueueAddInstanceCmd(mesh);
   }
+
+  Core::Log("min: {} max : {}", aabb.min.String(), aabb.max.String());
 
   Core::FlushAddInstanceCmds();
 

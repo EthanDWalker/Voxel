@@ -15,8 +15,21 @@ enum Axis {
 
 struct DirectionalLight {
   float3 direction;
-  float intesity;
+  float intensity;
   float3 color;
+};
+
+struct IndirectLightingRayDispatch {
+  uint32_t3 tree_index;
+};
+
+struct DispatchCommand {
+  Atomic<uint32_t> groups_x;
+  Atomic<uint32_t> groups_y;
+  Atomic<uint32_t> groups_z;
+  Atomic<uint32_t> total_x;
+  Atomic<uint32_t> total_y;
+  Atomic<uint32_t> total_z;
 };
 
 struct Vertex {
@@ -60,19 +73,50 @@ struct ByteBuffer : IBuffer {
   T Load<T, let I : uint32_t>() { return data.Load<T>(I); }
 };
 
+struct CountedBufferHeader {
+  uint32_t max_count;
+  uint32_t count;
+};
+
+struct RWCountedBuffer<T> {
+  private RWByteAddressBuffer buffer;
+
+  property uint32_t max_count {
+    get { return buffer.Load<uint32_t>(0); }
+  };
+
+  bool Append(const T value) {
+    uint32_t index;
+    buffer.InterlockedAdd(4, 1, index);
+
+    if (index >= this.max_count) {
+      return false;
+    }
+
+    buffer.Store<T>(sizeof(CountedBufferHeader) + sizeof(T) * index, value);
+    return true;
+  }
+};
+
 struct CountedBuffer<T> {
   private ByteAddressBuffer buffer;
 
-  property uint32_t count {
+  property uint32_t max_count {
     get { return buffer.Load<uint32_t>(0); }
   }
 
+  property uint32_t count {
+    get { return buffer.Load<uint32_t>(4); }
+  }
+
   __subscript(const uint32_t index)->T {
-    get { return buffer.Load<T>(sizeof(uint32_t) + sizeof(DirectionalLight) * index); }
+    get { return buffer.Load<T>(sizeof(CountedBufferHeader) + sizeof(T) * index); }
   }
 };
 
 uint32_t SumComponents(const uint32_t3 v) { return v.x + v.y + v.z; }
+uint64_t SumComponents(const uint64_t2 v) { return v.x + v.y; }
+uint64_t SumComponents(const uint64_t3 v) { return v.x + v.y + v.z; }
 uint32_t SumComponents(const uint32_t4 v) { return v.x + v.y + v.z + v.w; }
 
 uint32_t PackRGBA8(const float4 data) {
@@ -190,4 +234,21 @@ float SampleBeamImage(const uint32_t2 main_image_location, const RWTexture2D<flo
   }
   t *= 0.99f;
   return t;
+}
+
+float3 SampleEnvironmentColor(const float3 ray_dir, const DirectionalLight sun) {
+  static const float3 GROUND_COLOR = float3(0.1f);
+  static const float3 SKY_COLOR_HORIZON = float3(0.8f);
+  static const float3 SKY_COLOR_ZENITH = float3(0.6f, 0.75f, 1.0f);
+
+  const float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray_dir.y), 0.35f);
+  const float3 sky_gradient = lerp(SKY_COLOR_HORIZON, SKY_COLOR_ZENITH, sky_gradient_t);
+  const float ground_to_sky_t = smoothstep(-0.01f, 0.0f, ray_dir.y);
+
+  const float sun_focus = 100.0f;
+  const float sun = pow(max(0, dot(ray_dir, -sun.direction)), sun_focus) * sun.intensity;
+  const float sun_mask = step(ground_to_sky_t, 1.0f);
+
+  const float3 sky_color = lerp(GROUND_COLOR, sky_gradient, ground_to_sky_t) + sun_mask * sun;
+  return sky_color;
 }

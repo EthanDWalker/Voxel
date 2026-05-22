@@ -32,13 +32,18 @@ struct HashSetHeader {
 #ifdef HASH_SET_ATOMIC
 [[vk::binding(0, HASH_SET_SET_BINDING)]]
 AtomicHashSetHeader hash_set_header;
+[[vk::binding(3, HASH_SET_SET_BINDING)]]
+RWStructuredBuffer<Atomic<uint32_t>> occlusion_data;
 #else
 [[vk::binding(0, HASH_SET_SET_BINDING)]]
 HashSetHeader hash_set_header;
+[[vk::binding(3, HASH_SET_SET_BINDING)]]
+StructuredBuffer<uint32_t> occlusion_data;
 #endif
 
 static const uint32_t EMPTY_KEY = 0xFFFFFFFF;
 static const uint32_t MAX_DRIFT = 100;
+static const float ALPHA = 0.005f;
 
 uint32_t Hash(uint32_t a) {
   a = (a ^ 61) ^ (a >> 16);
@@ -46,7 +51,6 @@ uint32_t Hash(uint32_t a) {
   a = a ^ (a >> 4);
   a = a * 0x27d4eb2d;
   a = a ^ (a >> 15);
-
   return a;
 }
 
@@ -54,17 +58,36 @@ uint32_t Hash(uint32_t a) {
 struct AtomicHashSet {
   struct AtomicKeyValuePair {
     Atomic<uint32_t> key;
-    // 1 bits in shadow
-    // 1 bits shadow ray cast
-    Atomic<uint32_t> occlusion_data;
-    Atomic<float> lighting;
-    Atomic<uint32_t> sample_count;
+    Atomic<float> sample_count;
+    Atomic<uint64_t> lighting;
   };
 
   RWStructuredBuffer<AtomicKeyValuePair> set;
 
-  bool ClaimShadowRay(const uint32_t id) {
+  uint32_t Find(const uint32_t id, out bool in_set) {
     const uint32_t hash = Hash(id);
+    in_set = false;
+
+    for (uint32_t i = 0; i < MAX_DRIFT; i++) {
+      const uint32_t index = (hash + i) % hash_set_header.size;
+      const uint32_t ret = set[index].key.load();
+
+      // assumes we do the shadow pass first which works in this case
+      if (ret == id) {
+        in_set = true;
+        return index;
+      } else if (ret == EMPTY_KEY) {
+        return 0;
+      }
+    }
+
+    return 0;
+  }
+
+  uint32_t FindAndInitialize(const uint32_t id, out bool initialized, out bool insertion_failiure) {
+    const uint32_t hash = Hash(id);
+    initialized = false;
+    insertion_failiure = false;
 
     for (uint32_t i = 0; i < MAX_DRIFT; i++) {
       const uint32_t index = (hash + i) % hash_set_header.size;
@@ -72,76 +95,55 @@ struct AtomicHashSet {
 
       // assumes we do the shadow pass first which works in this case
       if (ret == EMPTY_KEY) {
-        const uint32_t value = 1 << 30;
-        // overflows the u32, reseting the value to 0 + value
-        set[index].lighting.store(0.0f);
-        set[index].occlusion_data.add((0xFFFFFFFF - EMPTY_KEY) + 1 + value);
-        set[index].sample_count.add((0xFFFFFFFF - EMPTY_KEY) + 1);
-        return true;
+        set[index].lighting.add((0xFFFFFFFF - EMPTY_KEY) + 1);
+        set[index].sample_count.store(0.0f);
+        initialized = true;
+        return index;
       } else if (ret == id) {
-        return false;
+        return index;
       }
     }
 
+    insertion_failiure = true;
     hash_set_header.LogInsertionFailure();
     return false;
-  }
-
-  void SetInShadow(const uint32_t id) {
-    const uint32_t hash = Hash(id);
-
-    for (uint32_t i = 0; i < MAX_DRIFT; i++) {
-      const uint32_t index = (hash + i) % hash_set_header.size;
-      const uint32_t ret = set[index].key.load();
-
-      // assumes we do the shadow pass first which works in this case
-      if (ret == id) {
-        const uint32_t value = 1 << 31;
-        const uint32_t ret = set[index].occlusion_data.add(value);
-      } else if (ret == EMPTY_KEY) {
-        break;
-      }
-    }
-  }
-
-  void StoreIndirectLight(const uint32_t id, const float lighting, const uint32_t samples) {
-    const uint32_t hash = Hash(id);
-
-    for (uint32_t i = 0; i < MAX_DRIFT; i++) {
-      const uint32_t index = (hash + i) % hash_set_header.size;
-      const uint32_t ret = set[index].key.load();
-
-      // assumes we do the shadow pass first which works in this case
-      if (ret == id) {
-        set[index].lighting.add(lighting);
-        set[index].sample_count.add(samples);
-      } else if (ret == EMPTY_KEY) {
-        // id is not in set
-        break;
-      }
-    }
   }
 };
 #endif
 
+static const float SCALE = 0.01f;
+static const float INV_SCALE = 1.0f / SCALE;
+uint64_t PackIndirectLighting(const float3 data) {
+  const uint32_t3 d = uint32_t3(data * INV_SCALE);
+  if (any(d != 0)) {
+    // printf("(%u %u %u) vs (%f %f %f)", d.x, d.y, d.z, data.x, data.y, data.z);
+  }
+  return SumComponents(uint64_t3(uint32_t3(data * INV_SCALE)) << uint32_t3(43, 21, 0));
+}
+
+float3 UnpackIndirectLighting(const uint64_t data) {
+  return ((data >> uint32_t3(43, 21, 0)) & uint32_t3(0x1FFFF, 0x3FFFF, 0x1FFFF)) * SCALE;
+}
+
 struct IndirectLightValue {
   uint32_t occlusion_data;
-  float lighting;
-  uint32_t sample_count;
+  float sample_count;
+  uint64_t lighting_data;
 
   property bool in_shadow {
-    get { return bool(occlusion_data >> 31); }
+    get { return bool(occlusion_data >> 1); }
   };
 
   property float3 indirect_light {
-    get { return lighting / float(sample_count); }
+    get { return UnpackIndirectLighting(lighting_data) / sample_count; }
   };
 };
 
 struct HashSet {
   struct KeyValuePair {
     uint32_t key;
-    IndirectLightValue indirect_light;
+    float sample_count;
+    uint64_t lighting_data;
   };
 
   StructuredBuffer<KeyValuePair> set;
@@ -156,7 +158,16 @@ struct HashSet {
       if (ret == id) {
         in_set = true;
         IndirectLightValue value;
-        return set[index].indirect_light;
+        value.lighting_data = set[index].lighting_data;
+        value.sample_count = set[index].sample_count;
+#ifdef HASH_SET_ATOMIC
+        // dont use index from last frame to index into this frame
+        value.occlusion_data = 0;
+#else
+        value.occlusion_data = occlusion_data[index];
+#endif
+
+        return value;
       } else if (ret == EMPTY_KEY) {
         break;
       }

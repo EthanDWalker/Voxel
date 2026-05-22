@@ -10,7 +10,6 @@
 #include <vector>
 
 namespace Core {
-
 struct VulkanDescriptorLayout {
   VulkanDescriptorLayout() = default;
 

@@ -1,4 +1,6 @@
 #include "Core/Render/Vulkan/command_buffer.h"
+#include "Core/Render/Vulkan/buffer.h"
+#include "Core/Render/Vulkan/command_pool.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/image_util.h"
@@ -19,6 +21,11 @@ void VulkanCommandBuffer::TraceRays(const Vec3u32 dispatch,
   vkCmdTraceRaysKHR(obj, &shader_binding_table.ray_gen_entry, &shader_binding_table.miss_entry,
                     &shader_binding_table.closest_hit_entry, &shader_binding_table.callable_entry, dispatch.x,
                     dispatch.y, dispatch.z);
+}
+
+void VulkanCommandBuffer::DispatchIndirect(const BaseVulkanBuffer &dispatch_cmd) {
+  ZoneScoped;
+  vkCmdDispatchIndirect(obj, dispatch_cmd.obj, 0);
 }
 
 void VulkanCommandBuffer::BindSubPass(const BaseVulkanSubPass &sub_pass) {

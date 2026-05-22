@@ -1,8 +1,9 @@
 #pragma once
 
-#include "Core/Render/Vulkan/buffer.h"
+#include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
+#include "Core/Render/Vulkan/indirect_buffer.h"
 #include "Core/Render/Vulkan/pipeline.h"
 #include "Core/Render/Vulkan/swapchain.h"
 #include "Core/Render/camera.h"
@@ -17,8 +18,10 @@ namespace Core {
 struct Spec {
   u32 max_directional_lights = 10;
   u32 max_raycasts = 10;
-  u32 max_instances = 1'000;
-  u32 max_meshes = 1'000;
+  u32 max_instances = 10'000;
+  u32 max_meshes = 10'000;
+  u32 max_average_rays_per_pixel = 2;
+  u32 max_cached_indirect_lighting_per_pixel = 2;
 };
 
 const u32 BEAM_PREPASS_SCALE_EXP = 2;
@@ -47,6 +50,7 @@ struct RenderContext {
   VulkanPipeline<PipelineType::Compute> beam_prepass_pipeline;
   VulkanPipeline<PipelineType::Compute> clear_volume_pipeline;
   VulkanPipeline<PipelineType::Compute> indirect_lighting_prepass_pipeline;
+  VulkanPipeline<PipelineType::Compute> indirect_lighting_pipeline;
 
   VulkanPipeline<PipelineType::Graphic> allocate_pipeline;
   VulkanPipeline<PipelineType::Graphic> allocate_child_mask_pipeline;
@@ -66,6 +70,7 @@ struct RenderContext {
   SparseVoxelTree voxel_tree;
 
   DeviceHashSet indirect_light_hash_set;
+  IndirectDispatchBuffer<PipelineType::Compute, IndirectLightingRayDispatch> indirect_light_dispatch_buffer;
 
   std::vector<VoxelVolume> clear_volume_cmds;
   std::mutex clear_volume_cmd_mutex;
@@ -87,9 +92,9 @@ struct RenderContext {
   VulkanDescriptor raycast_descriptor;
 
   std::vector<Raycast> raycast_cmds;
-  std::vector<std::function<void(RaycastResult)>> raycast_callbacks;
-  std::mutex raycast_mutex;
-  VulkanPipeline<PipelineType::Compute> raycast_pipeline;
+  std::vector<std::function<void(RaycastResult)>> raycast_cmd_callbacks;
+  std::mutex raycast_cmd_mutex;
+  VulkanPipeline<PipelineType::Compute> raycast_cmd_pipeline;
 
   std::mutex add_instance_cmd_mutex;
   std::vector<Instance> add_instance_cmds;

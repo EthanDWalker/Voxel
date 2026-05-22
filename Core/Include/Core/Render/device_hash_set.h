@@ -1,20 +1,20 @@
 #pragma once
 
-#include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/descriptors.h"
+#include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/Vulkan/swapchain.h"
 
 namespace Core {
 
 struct DeviceHashSetKeyValuePair {
   u32 key;
-  // 1 bits in shadow
-  // 1 bits shadow ray cast
-  // 30 bits light hit
-  u32 occlusion_data;
-  // 32 bits sample count
-  f32 lighting;
-  u32 sample_count;
+  f32 sample_count;
+  // 21 bits r
+  // 22 bits g
+  // 21 bits b
+  // int stored * 0.05f
+  // allows for at least 20'000 samples
+  u64 lighting;
 };
 
 struct DeviceHashSetHeader {
@@ -25,6 +25,7 @@ struct DeviceHashSetHeader {
 struct DeviceHashSetSwappedData {
   VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetKeyValuePair> set_buffer = "hash set buffer";
   VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetHeader> header_buffer = "hash set header buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, u32> occlusion_data_buffer = "hash set occlusion data buffer";
 
   VulkanBuffer<BufferType::StagingBuffer> header_staging_buffer = "hash set header staging buffer";
 
@@ -35,6 +36,7 @@ struct DeviceHashSet {
   static const u32 EMPTY_KEY = 0xFFFFFFFF; // max u32
   static const u32 SET_BINDING = 1;
   static const u32 BACK_SET_BINDING = 2;
+  static const u32 OCCLUSION_DATA_BINDING = 3;
 
   void Create(const u32 size, const VkShaderStageFlags stage_flags);
   void Recreate(const u32 size, const VkShaderStageFlags stage_flags);

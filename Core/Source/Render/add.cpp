@@ -14,17 +14,17 @@ namespace Core {
 u32 AddDirectionalLight(const DirectionalLight &dir_light) {
   ZoneScoped;
   VulkanBuffer<BufferType::StagingBuffer> staging_buffer = "directional light staging buffer";
-  staging_buffer.BuildAddStagingBinding(sizeof(DirectionalLight));
-  staging_buffer.Build();
-  staging_buffer.IncrementMemory(&dir_light, sizeof(DirectionalLight));
+  staging_buffer.Create(sizeof(DirectionalLight));
+  memcpy(staging_buffer.host_address, &dir_light, sizeof(DirectionalLight));
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
-    cmd.UploadBufferToBuffer(
-        staging_buffer, render_context->directional_light_buffer, sizeof(DirectionalLight), 0,
-        sizeof(DirectionalLight) * render_context->directional_light_count + sizeof(u32));
+    VulkanSubPass<SubPassType::Transfer> transfer_pass;
+    transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(staging_buffer);
+    transfer_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->directional_light_buffer);
 
-    cmd.FillBuffer(render_context->directional_light_buffer, sizeof(u32),
-                   render_context->directional_light_count + 1);
+    cmd.BindSubPass(transfer_pass);
+
+    render_context->directional_light_buffer.AppendCount(cmd, staging_buffer);
   });
 
   return render_context->directional_light_count++;
@@ -218,9 +218,8 @@ Mesh AddMesh(const MeshData &mesh_data) {
   const u64 albedo_image_data_size =
       mesh_data.material.albedo_extent.width * mesh_data.material.albedo_extent.height * 4;
   VulkanBuffer<BufferType::StagingBuffer> albedo_staging_buffer = "image data staging buffer";
-  albedo_staging_buffer.BuildAddStagingBinding(albedo_image_data_size);
-  albedo_staging_buffer.Build();
-  albedo_staging_buffer.IncrementMemory(mesh_data.material.albedo_data, albedo_image_data_size);
+  albedo_staging_buffer.Create(albedo_image_data_size);
+  memcpy(albedo_staging_buffer.host_address, mesh_data.material.albedo_data, albedo_image_data_size);
 
   const u32 mesh_index = render_context->mesh_count;
   render_context->mesh_count++;

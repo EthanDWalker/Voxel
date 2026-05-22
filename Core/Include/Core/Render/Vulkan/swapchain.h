@@ -24,17 +24,17 @@ struct VulkanSwapchain {
   VkSemaphore swapchain_semaphores[FRAME_OVERLAP];
   VkSemaphore render_semaphores[FRAME_OVERLAP];
   VkFence render_fences[FRAME_OVERLAP];
-  VkSemaphore frame_number_semaphore;
 
   VkSwapchainKHR obj;
   VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
+  VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
   Vec2u32 extent;
   u32 frame_index = 0;
   u32 image_index;
   u32 frame_number = 0;
 
   void Create(const Vec2u32 extent);
-  void Resize(const Vec2u32 extent);
+  void Recreate(const Vec2u32 extent);
 
   void AcquireNextImage(bool &resize);
   void BeginCommandBuffer();

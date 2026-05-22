@@ -63,7 +63,7 @@ uint32_t PackLeafNode(const LeafNode node) {
   return value;
 }
 
-LeafNode UnpackLeafNode(const uint64_t data) {
+LeafNode UnpackLeafNode(const uint32_t data) {
   LeafNode node;
 
   const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
@@ -271,6 +271,40 @@ float3 StepTreeRay(const float3 ray_dir_step, const float3 ray_dir, const float3
   const float voxel_clamp_epsilon = 1e-3f;
   return clamp(position + delta_t * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
                neighbor_max_bound - voxel_clamp_epsilon);
+}
+
+LeafNode GetLeafNodeAtFilledIndex(const uint32_t3 tree_index, out uint32_t ptr, out uint32_t level) {
+  uint32_t local_index = GetLocalIndex(tree_index, 0);
+  BranchNode node;
+
+  ptr = local_index;
+  for (level = 1;; level++) {
+    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+
+#ifdef VOXEL_TREE_ATOMIC
+    node.child_ptr_data = ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
+    node.child_mask = voxel_tree[page_index][page_offset].child_mask.load();
+#else
+    node = voxel_tree[page_index][page_offset];
+#endif
+
+    local_index = GetLocalIndex(tree_index, level);
+
+    ptr = node.child_ptr_data.child_ptr + local_index;
+
+    if (node.child_ptr_data.is_leaf) {
+      break;
+    }
+  }
+
+  const uint32_t leaf_page_index = ptr >> voxel_tree_header.page_size_exp;
+  const uint32_t leaf_page_offset = ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
+#ifdef VOXEL_TREE_ATOMIC
+  return UnpackLeafNode(voxel_tree_leaf[leaf_page_index][leaf_page_offset].data.load());
+#else
+  return UnpackLeafNode(voxel_tree_leaf[leaf_page_index][leaf_page_offset].data);
+#endif
 }
 
 void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout BranchNode node,

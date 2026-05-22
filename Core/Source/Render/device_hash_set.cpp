@@ -17,6 +17,10 @@ void DeviceHashSet::Recreate(const u32 size, const VkShaderStageFlags shader_sta
     swapped_data[i].set_buffer.Destroy();
     swapped_data[i].set_buffer.Create(size,
                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    swapped_data[i].occlusion_data_buffer.Destroy();
+    swapped_data[i].occlusion_data_buffer.Create(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
   }
 
   for (u32 i = 0; i < swapped_data.size(); i++) {
@@ -25,6 +29,8 @@ void DeviceHashSet::Recreate(const u32 size, const VkShaderStageFlags shader_sta
         BACK_SET_BINDING,
         &swapped_data[(i + (VulkanSwapchain::FRAME_OVERLAP - 1)) % VulkanSwapchain::FRAME_OVERLAP]
              .set_buffer);
+    swapped_data[i].descriptor.Update<DeviceResourceType::Buffer>(OCCLUSION_DATA_BINDING,
+                                                                  &swapped_data[i].occlusion_data_buffer);
   }
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
@@ -34,6 +40,7 @@ void DeviceHashSet::Recreate(const u32 size, const VkShaderStageFlags shader_sta
       copy_pass.AddDependency<DeviceResourceType::TransferDst>(swapped_data[i].set_buffer);
       copy_pass.AddDependency<DeviceResourceType::TransferSrc>(swapped_data[i].header_staging_buffer);
       copy_pass.AddDependency<DeviceResourceType::TransferDst>(swapped_data[i].header_buffer);
+      copy_pass.AddDependency<DeviceResourceType::TransferDst>(swapped_data[i].occlusion_data_buffer);
     }
 
     cmd.BindSubPass(copy_pass);
@@ -42,6 +49,7 @@ void DeviceHashSet::Recreate(const u32 size, const VkShaderStageFlags shader_sta
       cmd.FillBuffer(swapped_data[i].set_buffer, swapped_data[i].set_buffer.size, EMPTY_KEY);
       cmd.UploadBufferToBuffer(swapped_data[i].header_staging_buffer, swapped_data[i].header_buffer,
                                sizeof(DeviceHashSetHeader));
+      cmd.FillBuffer(swapped_data[i].occlusion_data_buffer, swapped_data[i].occlusion_data_buffer.size, 0);
     }
   });
 }
@@ -60,9 +68,11 @@ void DeviceHashSet::Create(const u32 size, const VkShaderStageFlags shader_stage
                                                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-    swapped_data[i].header_staging_buffer.BuildAddStagingBinding(sizeof(DeviceHashSetHeader));
-    swapped_data[i].header_staging_buffer.Build();
-    swapped_data[i].header_staging_buffer.IncrementMemory(&header, sizeof(DeviceHashSetHeader));
+    swapped_data[i].header_staging_buffer.Create(sizeof(DeviceHashSetHeader));
+    memcpy(swapped_data[i].header_staging_buffer.host_address, &header, sizeof(DeviceHashSetHeader));
+
+    swapped_data[i].occlusion_data_buffer.Create(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
   }
 
   for (u32 i = 0; i < swapped_data.size(); i++) {
@@ -71,6 +81,7 @@ void DeviceHashSet::Create(const u32 size, const VkShaderStageFlags shader_stage
     DescriptorBuilder::Bind<DeviceResourceType::Buffer>(
         &swapped_data[(i + (VulkanSwapchain::FRAME_OVERLAP - 1)) % VulkanSwapchain::FRAME_OVERLAP]
              .set_buffer);
+    DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&swapped_data[i].occlusion_data_buffer);
 
     if (i == 0) {
       DescriptorBuilder::BuildLayout(shader_stages, descriptor_layout);
@@ -87,6 +98,7 @@ void DeviceHashSet::Create(const u32 size, const VkShaderStageFlags shader_stage
       copy_pass.AddDependency<DeviceResourceType::TransferDst>(swapped_data[i].set_buffer);
       copy_pass.AddDependency<DeviceResourceType::TransferSrc>(swapped_data[i].header_staging_buffer);
       copy_pass.AddDependency<DeviceResourceType::TransferDst>(swapped_data[i].header_buffer);
+      copy_pass.AddDependency<DeviceResourceType::TransferDst>(swapped_data[i].occlusion_data_buffer);
     }
 
     cmd.BindSubPass(copy_pass);
@@ -95,6 +107,7 @@ void DeviceHashSet::Create(const u32 size, const VkShaderStageFlags shader_stage
       cmd.UploadBufferToBuffer(swapped_data[i].header_staging_buffer, swapped_data[i].header_buffer,
                                sizeof(DeviceHashSetHeader));
       cmd.FillBuffer(swapped_data[i].set_buffer, swapped_data[i].set_buffer.size, EMPTY_KEY);
+      cmd.FillBuffer(swapped_data[i].occlusion_data_buffer, swapped_data[i].occlusion_data_buffer.size, 0);
     }
   });
 }

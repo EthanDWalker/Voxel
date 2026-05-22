@@ -27,10 +27,8 @@ void FlushAddInstanceCmds() {
 
   VulkanBuffer<BufferType::StagingBuffer> staging_buffer = "staging buffer";
 
-  staging_buffer.BuildAddStagingBinding(sizeof(Instance) * render_context->add_instance_cmds.size());
-  staging_buffer.Build();
-  staging_buffer.IncrementMemory(render_context->add_instance_cmds.data(),
-                                 sizeof(Instance) * render_context->add_instance_cmds.size());
+  staging_buffer.Create(sizeof(Instance) * render_context->add_instance_cmds.size());
+  memcpy((char *)staging_buffer.host_address, render_context->add_instance_cmds.data(), staging_buffer.size);
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     {
@@ -40,8 +38,9 @@ void FlushAddInstanceCmds() {
 
       cmd.BindSubPass(transfer_pass);
 
-      cmd.UploadBufferToBuffer(staging_buffer, render_context->instance_buffer, staging_buffer.size, 0,
-                               render_context->instance_count * sizeof(Instance));
+      cmd.UploadBufferToBuffer(staging_buffer, render_context->instance_buffer, staging_buffer.size,
+                               /*src_offset=*/0,
+                               /*dst_offset=*/render_context->instance_count * sizeof(Instance));
     }
   });
 
@@ -88,9 +87,9 @@ void FlushClearVolumeCmds() {
 void QueueRaycastCmd(const Raycast &raycast,
                      const std::function<void(const RaycastResult &result)> &&callback) {
   ZoneScoped;
-  std::lock_guard<std::mutex> lock = std::lock_guard(render_context->raycast_mutex);
+  std::lock_guard<std::mutex> lock = std::lock_guard(render_context->raycast_cmd_mutex);
   render_context->raycast_cmds.emplace_back(raycast);
-  render_context->raycast_callbacks.emplace_back(callback);
+  render_context->raycast_cmd_callbacks.emplace_back(callback);
 }
 
 void FlushRaycastCmds() {
@@ -98,7 +97,7 @@ void FlushRaycastCmds() {
   if (render_context->raycast_cmds.size() == 0)
     return;
 
-  std::lock_guard<std::mutex> lock = std::lock_guard(render_context->raycast_mutex);
+  std::lock_guard<std::mutex> lock = std::lock_guard(render_context->raycast_cmd_mutex);
   VulkanContext::Submit([](VulkanCommandBuffer &cmd) {
     {
       VulkanSubPass<SubPassType::Transfer> copy_pass;
@@ -120,7 +119,7 @@ void FlushRaycastCmds() {
 
       cmd.BindSubPass(raycast_pass);
 
-      cmd.BindPipeline(render_context->raycast_pipeline);
+      cmd.BindPipeline(render_context->raycast_cmd_pipeline);
       cmd.BindDescriptors({render_context->voxel_tree.descriptor, render_context->raycast_descriptor});
       cmd.Dispatch(Vec3u32(render_context->raycast_cmds.size(), 1, 1));
     }
@@ -137,12 +136,12 @@ void FlushRaycastCmds() {
     }
   });
 
-  for (u32 i = 0; i < render_context->raycast_callbacks.size(); i++) {
-    render_context->raycast_callbacks[i](
+  for (u32 i = 0; i < render_context->raycast_cmd_callbacks.size(); i++) {
+    render_context->raycast_cmd_callbacks[i](
         *((RaycastResult *)render_context->raycast_staging_buffer.host_address));
   }
 
   render_context->raycast_cmds.clear();
-  render_context->raycast_callbacks.clear();
+  render_context->raycast_cmd_callbacks.clear();
 }
 } // namespace Core

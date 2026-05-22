@@ -60,8 +60,7 @@ struct alignas(GPU_ALIGNMENT) RaycastResult {
 };
 
 struct IndirectLightingRayDispatch {
-  u32 frame_sample_count;
-  u32 leaf_ptr;
+  Vec3u32 tree_index;
 };
 
 struct Mesh {
@@ -85,6 +84,7 @@ enum class DeviceResourceType : u8 {
   Buffer,
   RWBuffer,
   IndexBuffer,
+  IndirectDispatchBuffer,
 
   StorageImage,
   SampledImage,

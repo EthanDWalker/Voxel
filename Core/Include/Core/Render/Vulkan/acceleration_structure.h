@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Render/Vulkan/buffer.h"
+#include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/types.h"
 #include "volk.h"
 

@@ -17,7 +17,6 @@ VulkanSwapchain::~VulkanSwapchain() {
     vkDestroySemaphore(VulkanContext::device, render_semaphores[i], nullptr);
     vkDestroyFence(VulkanContext::device, render_fences[i], nullptr);
   }
-  vkDestroySemaphore(VulkanContext::device, frame_number_semaphore, nullptr);
 }
 
 void VulkanSwapchain::Create(Vec2u32 extent) {
@@ -32,7 +31,7 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
       swapchain_builder
           .set_desired_format(
               VkSurfaceFormatKHR{.format = this->format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-          .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
+          .set_desired_present_mode(present_mode)
           .set_required_min_image_count(FRAME_OVERLAP)
           .set_desired_extent(extent.width, extent.height)
           .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
@@ -71,22 +70,9 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
 
     VK_CHECK(vkCreateSemaphore(VulkanContext::device, &semaphore_ci, nullptr, &swapchain_semaphores[i]));
   }
-
-  {
-    VkSemaphoreTypeCreateInfo type_info{};
-    type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-    type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    type_info.initialValue = 0;
-
-    VkSemaphoreCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    create_info.pNext = &type_info;
-
-    vkCreateSemaphore(VulkanContext::device, &create_info, nullptr, &frame_number_semaphore);
-  }
 }
 
-void VulkanSwapchain::Resize(Vec2u32 extent) {
+void VulkanSwapchain::Recreate(Vec2u32 extent) {
   ZoneScoped;
 
   vkb::SwapchainBuilder swapchain_builder{
@@ -101,7 +87,7 @@ void VulkanSwapchain::Resize(Vec2u32 extent) {
       swapchain_builder
           .set_desired_format(
               VkSurfaceFormatKHR{.format = this->format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-          .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
+          .set_desired_present_mode(present_mode)
           .set_required_min_image_count(FRAME_OVERLAP)
           .set_old_swapchain(obj)
           .set_desired_extent(extent.width, extent.height)
@@ -198,12 +184,10 @@ void VulkanSwapchain::SubmitCommandBuffer() {
 
   const std::vector<VkSemaphoreSubmitInfo> wait_semaphore_info = {
       SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, swapchain_semaphores[frame_index]),
-      // SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame_number_semaphore, frame_number),
   };
 
   const std::vector<VkSemaphoreSubmitInfo> signal_semaphore_info = {
-      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, render_semaphores[frame_index]),
-      // SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame_number_semaphore, frame_number + 1),
+      SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, render_semaphores[image_index]),
   };
 
   const VkSubmitInfo2 submit_info = SubmitInfo(&cmd_submit_info, signal_semaphore_info, wait_semaphore_info);
@@ -219,7 +203,7 @@ void VulkanSwapchain::Present(bool &resize) {
   present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
   present_info.pSwapchains = &obj;
   present_info.swapchainCount = 1;
-  present_info.pWaitSemaphores = &render_semaphores[frame_index];
+  present_info.pWaitSemaphores = &render_semaphores[image_index];
   present_info.waitSemaphoreCount = 1;
   present_info.pImageIndices = &image_index;
 

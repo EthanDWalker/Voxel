@@ -46,5 +46,5 @@ void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
   leaf_node.normal = info.normal;
   leaf_node.color = color;
 
-  voxel_tree_leaf[page_index][page_offset].data = PackLeafNode(leaf_node);
+  voxel_tree_leaf[page_index][page_offset].data.max(PackLeafNode(leaf_node));
 }

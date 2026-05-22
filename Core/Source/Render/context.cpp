@@ -38,9 +38,22 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
     pipeline_builder.AddDescriptorLayout(light_descriptor_layout);
     pipeline_builder.AddDescriptorLayout(indirect_light_hash_set.descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(indirect_light_dispatch_buffer.descriptor_layout);
+    pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "indirect_lighting_prepass.slang");
+    PipelineBuildManager::Build(pipeline_builder, indirect_lighting_prepass_pipeline);
+  }
+
+  {
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
+    pipeline_builder.AddDescriptorLayout(image_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(camera_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(light_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(indirect_light_hash_set.descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(indirect_light_dispatch_buffer.descriptor_layout);
     pipeline_builder.AddPushConstantRange(sizeof(u32)); // frame number
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "indirect_lighting.slang");
-    PipelineBuildManager::Build(pipeline_builder, indirect_lighting_prepass_pipeline);
+    PipelineBuildManager::Build(pipeline_builder, indirect_lighting_pipeline);
   }
 
   {
@@ -65,7 +78,7 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
     pipeline_builder.AddDescriptorLayout(raycast_descriptor_layout);
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "cmd_raycast.slang");
-    PipelineBuildManager::Build(pipeline_builder, raycast_pipeline);
+    PipelineBuildManager::Build(pipeline_builder, raycast_cmd_pipeline);
   }
 
   {
@@ -118,7 +131,7 @@ void RenderContext::Create(const Spec &spec) {
 
   swapchain.Create(window_size);
 
-  directional_light_buffer.Create(sizeof(DirectionalLight) * spec.max_directional_lights + sizeof(u32),
+  directional_light_buffer.Create(spec.max_directional_lights,
                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {
@@ -126,8 +139,12 @@ void RenderContext::Create(const Spec &spec) {
                             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
   }
 
-  indirect_light_hash_set.Create((main_image.height * main_image.width) >> INDIRECT_LIGHT_SCALE_EXP,
+  indirect_light_hash_set.Create(((main_image.height * main_image.width) >> INDIRECT_LIGHT_SCALE_EXP) *
+                                     spec.max_cached_indirect_lighting_per_pixel,
                                  VK_SHADER_STAGE_COMPUTE_BIT);
+  indirect_light_dispatch_buffer.Create(((main_image.height * main_image.width) >> INDIRECT_LIGHT_SCALE_EXP) *
+                                            spec.max_average_rays_per_pixel,
+                                        VK_SHADER_STAGE_COMPUTE_BIT);
 
   instance_buffer.Create(sizeof(Instance) * spec.max_instances,
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -137,9 +154,8 @@ void RenderContext::Create(const Spec &spec) {
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
   raycast_cmds_buffer.Create(sizeof(Raycast) * spec.max_raycasts,
                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-  raycast_staging_buffer.BuildAddStagingBinding(Max(sizeof(RaycastResult), sizeof(Raycast)) *
-                                                spec.max_raycasts);
-  raycast_staging_buffer.Build();
+
+  raycast_staging_buffer.Create(Max(sizeof(RaycastResult), sizeof(Raycast)) * spec.max_raycasts);
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {
     DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&camera_buffer[i]);
@@ -182,8 +198,7 @@ void RenderContext::Create(const Spec &spec) {
   DescriptorBuilder::Reset();
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {
-    frame_staging_buffer[i].BuildAddStagingBinding(sizeof(Camera::UBO));
-    frame_staging_buffer[i].Build();
+    frame_staging_buffer[i].Create(camera_buffer[i].size);
   }
 
   CreatePipelines();

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Core/Render/Vulkan/acceleration_structure.h"
 #include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/image_util.h"
@@ -117,6 +116,9 @@ template <> struct VulkanSubPass<SubPassType::Compute> : BaseVulkanSubPass {
       barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     } else if constexpr (T == DeviceResourceType::Buffer) {
       barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    } else if constexpr (T == DeviceResourceType::IndirectDispatchBuffer) {
+      barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+      barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
     } else {
       static_assert(false, "Unsupported dependency type");
     }

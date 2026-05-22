@@ -129,16 +129,24 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
         const JsonObject material_buffer_view =
             *buffer_view_array.value_arr[material_image_buffer_view_index].object;
 
-        const u64 data_size = (u32)material_buffer_view.FindNoFail("byteLength").value_arr[0].number;
-        u8 *const image_data = (u8 *const)malloc(data_size);
-        file.seekg(bin_offset + (u32)material_buffer_view.FindNoFail("byteOffset").value_arr[0].number,
-                   std::ios::beg);
-        file.read((char *)image_data, data_size);
+        if (i < 0) {
+          const u64 data_size = (u32)material_buffer_view.FindNoFail("byteLength").value_arr[0].number;
+          u8 *const image_data = (u8 *const)malloc(data_size);
+          file.seekg(bin_offset + (u32)material_buffer_view.FindNoFail("byteOffset").value_arr[0].number,
+                     std::ios::beg);
+          file.read((char *)image_data, data_size);
 
-        mesh.material.albedo_data =
-            stbi_load_from_memory((u8 *)image_data, data_size, (int *)&mesh.material.albedo_extent.x,
-                                  (int *)&mesh.material.albedo_extent.y, nullptr, /*req_comp=*/4);
-        free(image_data);
+          mesh.material.albedo_data =
+              stbi_load_from_memory((u8 *)image_data, data_size, (int *)&mesh.material.albedo_extent.x,
+                                    (int *)&mesh.material.albedo_extent.y, nullptr, 4);
+
+          free(image_data);
+        } else {
+          mesh.material.albedo_data = (u8 *)malloc(sizeof(u32));
+          const u32 white = 0xFFFFFFFF;
+          memcpy(mesh.material.albedo_data, &white, sizeof(u32));
+          mesh.material.albedo_extent = 1;
+        }
       }
 
       const JsonObject attributes_object = *primitive_object.FindNoFail("attributes").value_arr[0].object;
@@ -170,12 +178,10 @@ void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_fil
                .object;
 
       const u32 vertex_count = (u32)position_accessor_object.FindNoFail("count").value_arr[0].number;
-      mesh.vertex_host_buffer->BuildAddStagingBinding(sizeof(Vertex) * vertex_count);
-      mesh.vertex_host_buffer->Build();
+      mesh.vertex_host_buffer->Create(sizeof(Vertex) * vertex_count);
 
       const u32 index_count = (u32)index_accessor_object.FindNoFail("count").value_arr[0].number;
-      mesh.index_host_buffer->BuildAddStagingBinding(sizeof(Index) * index_count);
-      mesh.index_host_buffer->Build();
+      mesh.index_host_buffer->Create(sizeof(Index) * index_count);
 
       file.seekg(bin_offset + (u32)position_buffer_view_object.FindNoFail("byteOffset").value_arr[0].number,
                  std::ios::beg);

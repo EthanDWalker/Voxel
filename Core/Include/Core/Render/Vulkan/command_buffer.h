@@ -54,12 +54,12 @@ struct VulkanCommandBuffer {
   void BeginDebugPass(const char *const name);
   void EndDebugPass();
 
-  void UploadBufferToBuffer(const BaseVulkanBuffer &src_buffer, const BaseVulkanBuffer &dst_buffer, const u64 size,
-                            const u64 src_offset = 0, const u64 dst_offset = 0);
+  void UploadBufferToBuffer(const BaseVulkanBuffer &src_buffer, const BaseVulkanBuffer &dst_buffer,
+                            const u64 size, const u64 src_offset = 0, const u64 dst_offset = 0);
   void FillBuffer(const BaseVulkanBuffer &buffer, const u64 fill_size, const u32 data, const u32 offset = 0);
   void ClearImage(const BaseVulkanImage &image);
-  void UploadBufferToImage(const BaseVulkanBuffer &buffer, const BaseVulkanImage &image, const u32 src_offset = 0,
-                           const u32 mip_level = 0);
+  void UploadBufferToImage(const BaseVulkanBuffer &buffer, const BaseVulkanImage &image,
+                           const u32 src_offset = 0, const u32 mip_level = 0);
   void Blit(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image, const u32 src_mip_level,
             const u32 dst_mip_level);
 
@@ -68,6 +68,8 @@ struct VulkanCommandBuffer {
   void BindSubPass(const BaseVulkanSubPass &sub_pass);
 
   void CopyImageToImage(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image);
+
+  void DispatchIndirect(const BaseVulkanBuffer &dispatch_buffer);
 
   template <PipelineType T> void BindPipeline(const VulkanPipeline<T> &pipeline) {
     if constexpr (T == PipelineType::Compute) {
