@@ -59,14 +59,14 @@ struct alignas(GPU_ALIGNMENT) RaycastResult {
   bool hit;
 };
 
-struct IndirectLightingRayDispatch {
-  Vec3u32 tree_index;
-};
-
 struct Mesh {
-  u64 id;
   u32 index_count;
   u32 vertex_count;
+  u32 albedo_image_index;
+};
+
+struct IndirectLightingRayDispatch {
+  Vec3u32 tree_index;
 };
 
 enum class SamplerFilter : u8 {

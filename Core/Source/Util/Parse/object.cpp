@@ -5,6 +5,7 @@
 namespace Core {
 
 void WriteMeshFile(const std::filesystem::path &folder_path, const MeshData &mesh_data) {
+  ZoneScoped;
   const std::filesystem::path path = folder_path / std::format("{}.mesh", mesh_data.name);
 
   std::ofstream file = std::ofstream(path, std::ios::binary | std::ios::out);
@@ -26,6 +27,7 @@ void WriteMeshFile(const std::filesystem::path &folder_path, const MeshData &mes
 }
 
 void ReadMeshFile(MeshData &mesh_data, const std::filesystem::path &file_path) {
+  ZoneScoped;
   std::ifstream file = std::ifstream(file_path, std::ios::in | std::ios::binary);
 
   MeshFileHeader header;
@@ -46,6 +48,7 @@ void ReadMeshFile(MeshData &mesh_data, const std::filesystem::path &file_path) {
 }
 
 void WriteMaterialFile(const std::filesystem::path &folder_path, const MaterialData &material_data) {
+  ZoneScoped;
   if (!material_data.initialized) {
     return;
   }
@@ -66,6 +69,7 @@ void WriteMaterialFile(const std::filesystem::path &folder_path, const MaterialD
 }
 
 void ReadMaterialFile(MaterialData &material_data, const std::filesystem::path &file_path) {
+  ZoneScoped;
   std::ifstream file = std::ifstream(file_path, std::ios::in | std::ios::binary);
 
   MaterialFileHeader header;
@@ -78,12 +82,12 @@ void ReadMaterialFile(MaterialData &material_data, const std::filesystem::path &
 
   material_data.name = file_path.stem().string();
 
-  Core::Log("reading material {}.material with size {} number {}", material_data.name, header.image_data_size,
-            *(u32 *)material_data.compressed_albedo_data_buffer->host_address);
+  Core::Log("reading material {}.material with size {}", material_data.name, header.image_data_size);
 }
 
 // writes length of string then string w/o null terminal character at the end
 void WriteString(std::ofstream &file, const std::string &string) {
+  ZoneScoped;
   const u32 name_size = string.size();
   file.write((const char *)&name_size, sizeof(u32));
 
@@ -95,6 +99,7 @@ void WriteString(std::ofstream &file, const std::string &string) {
 }
 
 void WriteObjectFolder(const std::filesystem::path &folder_path, const ObjectData &object_data) {
+  ZoneScoped;
   if (!std::filesystem::exists(folder_path)) {
     std::filesystem::create_directories(folder_path);
   }
@@ -137,6 +142,7 @@ void WriteObjectFolder(const std::filesystem::path &folder_path, const ObjectDat
 
 // reads string with length as u32 in front of string
 void ReadString(std::ifstream &file, std::string &string) {
+  ZoneScoped;
   u32 size;
   file.read((char *)&size, sizeof(u32));
 
@@ -149,6 +155,7 @@ void ReadString(std::ifstream &file, std::string &string) {
 }
 
 void ReadObjectFolder(const std::filesystem::path &folder_path, ObjectData &object_data) {
+  ZoneScoped;
   Assert(std::filesystem::exists(folder_path), "object folder {} doesnt exist", folder_path.string());
 
   std::ifstream file = std::ifstream(folder_path / std::format("{}.object", folder_path.stem().string()),

@@ -8,7 +8,7 @@
 #include "Core/Render/context.h"
 #include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
-#include "Core/Util/compress.h"
+#include "Core/Util/Parse/object.h"
 #include <memory>
 
 namespace Core {
@@ -31,9 +31,8 @@ u32 AddDirectionalLight(const DirectionalLight &dir_light) {
   return render_context->directional_light_count++;
 }
 
-void VoxelizeMesh(const Mesh &mesh, const u32 max_depth) {
-  AllocateInfo alloc_info;
-  alloc_info.mesh_id = mesh.id;
+void VoxelizeMeshes(const std::vector<Mesh> &mesh_arr, const u32 max_depth) {
+  ZoneScoped;
 
   SparseVoxelTree::TreeHeader *header =
       (SparseVoxelTree::TreeHeader *)render_context->voxel_tree.tree_header_host_buffer.host_address;
@@ -86,13 +85,20 @@ void VoxelizeMesh(const Mesh &mesh, const u32 max_depth) {
 
         cmd.BindSubPass(allocate_pass);
 
-        alloc_info.depth = depth;
-        alloc_info.leaf = (depth == (max_depth - 1));
         cmd.BeginRendering({}, nullptr, Vec2u32(1 << (max_depth * 2)));
         cmd.BindPipeline(render_context->allocate_pipeline);
         cmd.BindDescriptors({render_context->voxelize_descriptor, render_context->voxel_tree.descriptor});
-        cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
-        cmd.Draw(mesh.index_count / 3);
+
+        AllocateInfo alloc_info;
+        alloc_info.depth = depth;
+        alloc_info.leaf = (depth == (max_depth - 1));
+
+        for (u32 i = 0; i < mesh_arr.size(); i++) {
+          alloc_info.mesh_id = i;
+          cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
+          cmd.Draw(mesh_arr[i].index_count / 3);
+          cmd.ClearPushConstants();
+        }
         cmd.EndRendering();
       }
 
@@ -154,8 +160,18 @@ void VoxelizeMesh(const Mesh &mesh, const u32 max_depth) {
       cmd.BeginRendering({}, nullptr, Vec2u32(1 << (max_depth * 2)));
       cmd.BindPipeline(render_context->allocate_child_mask_pipeline);
       cmd.BindDescriptors({render_context->voxelize_descriptor, render_context->voxel_tree.descriptor});
-      cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
-      cmd.Draw(mesh.index_count / 3);
+
+      for (u32 i = 0; i < mesh_arr.size(); i++) {
+        AllocateInfo alloc_info;
+        alloc_info.depth = max_depth - 1;
+        alloc_info.leaf = true;
+        alloc_info.mesh_id = i;
+
+        cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
+        cmd.Draw(mesh_arr[i].index_count / 3);
+        cmd.ClearPushConstants();
+      }
+
       cmd.EndRendering();
     }
 
@@ -175,79 +191,143 @@ void VoxelizeMesh(const Mesh &mesh, const u32 max_depth) {
   });
 }
 
-Mesh AddMesh(const MeshData &mesh_data, const MaterialData &material_data) {
+void AddObject(const ObjectData &object) {
   ZoneScoped;
 
   const u32 max_depth = SparseVoxelTree::MAX_DEPTH;
 
-  VkPhysicalDeviceAccelerationStructurePropertiesKHR properties{};
-  properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+  VulkanBuffer<BufferType::StructuredBuffer, Mesh> mesh_buffer = "mesh buffer";
+  mesh_buffer.Create(object.mesh_data_arr.size(),
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-  VkPhysicalDeviceProperties2 device_properties{};
-  device_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-  device_properties.pNext = &properties;
+  render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(2, &mesh_buffer);
 
-  vkGetPhysicalDeviceProperties2(VulkanContext::physical_device, &device_properties);
+  VulkanBuffer<BufferType::StagingBuffer> mesh_staging_buffer = "mesh staging buffer";
+  mesh_staging_buffer.Create(mesh_buffer.size);
 
-  VulkanBuffer<BufferType::StructuredBuffer, Vertex> vertex_buffer = "vertex buffer";
-  VulkanBuffer<BufferType::StructuredBuffer, Index> index_buffer = "index buffer";
+  std::vector<Mesh> mesh_arr;
+  mesh_arr.resize(object.mesh_data_arr.size());
 
-  vertex_buffer.Create(mesh_data.vertex_count,
-                       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-  index_buffer.Create(mesh_data.index_count,
-                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+  for (u32 i = 0; i < mesh_arr.size(); i++) {
+    mesh_arr[i].index_count = object.mesh_data_arr[i].index_count;
+    mesh_arr[i].vertex_count = object.mesh_data_arr[i].vertex_count;
+    mesh_arr[i].albedo_image_index = object.mesh_data_arr[i].material_index;
+  }
 
-  VulkanImage<ImageType::Planar> albedo_image;
-  albedo_image.Create(material_data.albedo_extent, VK_FORMAT_BC1_RGB_UNORM_BLOCK,
-                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  memcpy(mesh_staging_buffer.host_address, mesh_arr.data(), mesh_staging_buffer.size);
 
-  const u32 mesh_index = render_context->mesh_count;
-  render_context->mesh_count++;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, Vertex>>> vertex_buffer_arr;
+  vertex_buffer_arr.reserve(object.mesh_data_arr.size());
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, Index>>> index_buffer_arr;
+  index_buffer_arr.reserve(object.mesh_data_arr.size());
+
+  for (u32 i = 0; i < object.mesh_data_arr.size(); i++) {
+    vertex_buffer_arr
+        .emplace_back(std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, Vertex>>("vertex buffer"))
+        ->Create(mesh_arr[i].vertex_count,
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    index_buffer_arr
+        .emplace_back(std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, Index>>("index buffer"))
+        ->Create(mesh_arr[i].index_count,
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(0, vertex_buffer_arr[i].get(), i);
+    render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(1, index_buffer_arr[i].get(), i);
+  }
+
+  std::vector<std::unique_ptr<VulkanImage<ImageType::Planar>>> albedo_image_arr;
+  albedo_image_arr.resize(object.material_data_arr.size());
+
+  for (u32 i = 0; i < object.material_data_arr.size(); i++) {
+    if (!object.material_data_arr[i].initialized)
+      continue;
+
+    albedo_image_arr[i] = std::make_unique<VulkanImage<ImageType::Planar>>();
+    albedo_image_arr[i]->Create(object.material_data_arr[i].albedo_extent, VK_FORMAT_BC1_RGB_UNORM_BLOCK,
+                                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+
+    render_context->voxelize_descriptor.Update<DeviceResourceType::SampledImage>(3, albedo_image_arr[i].get(),
+                                                                                 i);
+  }
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     {
       VulkanSubPass<SubPassType::Transfer> transfer_pass;
+      transfer_pass.ReserveBufferDependencies(vertex_buffer_arr.size() * 2);
+      for (u32 i = 0; i < vertex_buffer_arr.size(); i++) {
+        transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
+            *object.mesh_data_arr[i].vertex_host_buffer);
+        transfer_pass.AddDependency<DeviceResourceType::TransferDst>(*vertex_buffer_arr[i]);
+      }
 
-      transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(*mesh_data.vertex_host_buffer);
-      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(vertex_buffer);
+      transfer_pass.ReserveBufferDependencies(index_buffer_arr.size() * 2);
+      for (u32 i = 0; i < index_buffer_arr.size(); i++) {
+        transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
+            *object.mesh_data_arr[i].index_host_buffer);
+        transfer_pass.AddDependency<DeviceResourceType::TransferDst>(*index_buffer_arr[i]);
+      }
 
-      transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(*mesh_data.index_host_buffer);
-      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(index_buffer);
+      transfer_pass.ReserveBufferDependencies(albedo_image_arr.size());
+      transfer_pass.ReserveImageDependencies(albedo_image_arr.size());
+      for (u32 i = 0; i < albedo_image_arr.size(); i++) {
+        if (!object.material_data_arr[i].initialized)
+          continue;
 
-      transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
-          *material_data.compressed_albedo_data_buffer);
-      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(albedo_image);
+        transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
+            *object.material_data_arr[i].compressed_albedo_data_buffer);
+        transfer_pass.AddDependency<DeviceResourceType::TransferDst>(*albedo_image_arr[i]);
+      }
+
+      transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(mesh_staging_buffer);
+      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(mesh_buffer);
 
       cmd.BindSubPass(transfer_pass);
 
-      cmd.UploadBufferToBuffer(*mesh_data.vertex_host_buffer, vertex_buffer,
-                               mesh_data.vertex_host_buffer->size);
-      cmd.UploadBufferToBuffer(*mesh_data.index_host_buffer, index_buffer, mesh_data.index_host_buffer->size);
-      cmd.UploadBufferToImage(*material_data.compressed_albedo_data_buffer, albedo_image);
+      for (u32 i = 0; i < vertex_buffer_arr.size(); i++) {
+        cmd.UploadBufferToBuffer(*object.mesh_data_arr[i].vertex_host_buffer, *vertex_buffer_arr[i],
+                                 vertex_buffer_arr[i]->size);
+      }
+      for (u32 i = 0; i < index_buffer_arr.size(); i++) {
+        cmd.UploadBufferToBuffer(*object.mesh_data_arr[i].index_host_buffer, *index_buffer_arr[i],
+                                 index_buffer_arr[i]->size);
+      }
+      for (u32 i = 0; i < albedo_image_arr.size(); i++) {
+        if (!object.material_data_arr[i].initialized)
+          continue;
+
+        cmd.UploadBufferToImage(*object.material_data_arr[i].compressed_albedo_data_buffer,
+                                *albedo_image_arr[i]);
+      }
+
+      cmd.UploadBufferToBuffer(mesh_staging_buffer, mesh_buffer, mesh_buffer.size);
     }
 
     {
       VulkanSubPass<SubPassType::Graphic> graphic_pass;
+      graphic_pass.ReserveBufferDependencies(vertex_buffer_arr.size());
+      for (u32 i = 0; i < vertex_buffer_arr.size(); i++) {
+        graphic_pass.AddDependency<DeviceResourceType::Buffer>(*vertex_buffer_arr[i]);
+      }
 
-      graphic_pass.AddDependency<DeviceResourceType::Buffer>(vertex_buffer);
-      graphic_pass.AddDependency<DeviceResourceType::Buffer>(index_buffer);
-      graphic_pass.AddDependency<DeviceResourceType::SampledImage>(albedo_image);
+      graphic_pass.ReserveBufferDependencies(index_buffer_arr.size());
+      for (u32 i = 0; i < index_buffer_arr.size(); i++) {
+        graphic_pass.AddDependency<DeviceResourceType::Buffer>(*index_buffer_arr[i]);
+      }
+
+      graphic_pass.ReserveImageDependencies(albedo_image_arr.size());
+      for (u32 i = 0; i < albedo_image_arr.size(); i++) {
+        if (!object.material_data_arr[i].initialized)
+          continue;
+
+        graphic_pass.AddDependency<DeviceResourceType::SampledImage>(*albedo_image_arr[i]);
+      }
+
+      graphic_pass.AddDependency<DeviceResourceType::Buffer>(mesh_buffer);
 
       cmd.BindSubPass(graphic_pass);
     }
   });
 
-  Mesh mesh;
-  mesh.id = mesh_index;
-  mesh.vertex_count = mesh_data.vertex_count;
-  mesh.index_count = mesh_data.index_count;
-
-  render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(0, &vertex_buffer);
-  render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(1, &index_buffer);
-  render_context->voxelize_descriptor.Update<DeviceResourceType::SampledImage>(2, &albedo_image);
-
-  VoxelizeMesh(mesh, max_depth);
-
-  return mesh;
+  VoxelizeMeshes(mesh_arr, max_depth);
 }
 }; // namespace Core

@@ -146,10 +146,6 @@ void RenderContext::Create(const Spec &spec) {
                                             spec.max_average_rays_per_pixel,
                                         VK_SHADER_STAGE_COMPUTE_BIT);
 
-  instance_buffer.Create(sizeof(Instance) * spec.max_instances,
-                         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR);
-
   raycast_results_buffer.Create(sizeof(RaycastResult) * spec.max_raycasts,
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
   raycast_cmds_buffer.Create(sizeof(Raycast) * spec.max_raycasts,
@@ -187,14 +183,13 @@ void RenderContext::Create(const Spec &spec) {
 
   albedo_sampler.Create(SamplerFilter::Linear, SamplerFilter::Linear);
 
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);
-  DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr);
-  DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&albedo_sampler);
-  DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,
-                                 voxelize_descriptor_layout);
-  DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,
-                              voxelize_descriptor_layout, voxelize_descriptor);
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // vertex
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // index
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // meshes
+  DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr, spec.max_meshes); // albedo
+  DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&albedo_sampler);               // sampler
+  DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout);
+  DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout, voxelize_descriptor);
   DescriptorBuilder::Reset();
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {

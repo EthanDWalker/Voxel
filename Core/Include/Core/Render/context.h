@@ -18,7 +18,6 @@ namespace Core {
 struct Spec {
   u32 max_directional_lights = 10;
   u32 max_raycasts = 10;
-  u32 max_instances = 10'000;
   u32 max_meshes = 10'000;
   u32 max_average_rays_per_pixel = 2;
   u32 max_cached_indirect_lighting_per_pixel = 2;
@@ -75,8 +74,6 @@ struct RenderContext {
   std::vector<VoxelVolume> clear_volume_cmds;
   std::mutex clear_volume_cmd_mutex;
 
-  u32 mesh_count = 0;
-
   VulkanDescriptorLayout voxelize_descriptor_layout;
   VulkanDescriptor voxelize_descriptor;
   VulkanSampler albedo_sampler;
@@ -92,11 +89,6 @@ struct RenderContext {
   std::vector<std::function<void(RaycastResult)>> raycast_cmd_callbacks;
   std::mutex raycast_cmd_mutex;
   VulkanPipeline<PipelineType::Compute> raycast_cmd_pipeline;
-
-  std::mutex add_instance_cmd_mutex;
-  std::vector<Instance> add_instance_cmds;
-  VulkanBuffer<BufferType::StructuredBuffer, Instance> instance_buffer = "instance buffer";
-  u32 instance_count;
 
   std::chrono::time_point<std::chrono::steady_clock> last_frame_time;
   std::chrono::time_point<std::chrono::steady_clock> start_time;

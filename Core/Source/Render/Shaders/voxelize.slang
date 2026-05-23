@@ -3,16 +3,10 @@
 #include "Include/voxel_tree.slang"
 
 [[vk::binding(0, 0)]]
-StructuredBuffer<Vertex> vertex_arr;
+StructuredBuffer<Vertex> vertex_arr[];
 
 [[vk::binding(1, 0)]]
-StructuredBuffer<uint32_t> index_arr;
-
-[[vk::binding(2, 0)]]
-Texture2D<float4> albedo_image;
-
-[[vk::binding(3, 0)]]
-SamplerState albedo_image_sampler;
+StructuredBuffer<uint32_t> index_arr[];
 
 struct VertexInfo {
   uint32_t vertex_id;
@@ -35,9 +29,9 @@ TriangleInfo VMain(const uint32_t triangle_id: SV_VertexID, const uniform Alloca
 void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInfo> output_stream,
            const uniform AllocateInfo alloc_info) {
   const Vertex input[3] = {
-    vertex_arr[index_arr[triangle_info[0].triangle_id * 3 + 0]],
-    vertex_arr[index_arr[triangle_info[0].triangle_id * 3 + 1]],
-    vertex_arr[index_arr[triangle_info[0].triangle_id * 3 + 2]],
+    vertex_arr[alloc_info.mesh_id][index_arr[alloc_info.mesh_id][triangle_info[0].triangle_id * 3 + 0]],
+    vertex_arr[alloc_info.mesh_id][index_arr[alloc_info.mesh_id][triangle_info[0].triangle_id * 3 + 1]],
+    vertex_arr[alloc_info.mesh_id][index_arr[alloc_info.mesh_id][triangle_info[0].triangle_id * 3 + 2]],
   };
 
   const float3 normal =

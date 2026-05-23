@@ -3,51 +3,11 @@
 #include "Core/Render/Vulkan/command_buffer.h"
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/submission_pass.h"
-#include "Core/Render/Vulkan/util.h"
 #include "Core/Render/context.h"
 #include "Core/Render/types.h"
 #include "Core/Util/thread_pool.h"
 
 namespace Core {
-void QueueAddInstanceCmd(const Mesh &mesh) {
-  std::lock_guard<std::mutex> lock(render_context->add_instance_cmd_mutex);
-  Instance &instance = render_context->add_instance_cmds.emplace_back();
-  instance.transform = Mat4ToVkTransform(1.0f);
-  instance.instanceCustomIndex = mesh.id;
-  instance.mask = 0xFF;
-  instance.instanceShaderBindingTableRecordOffset = 0;
-  instance.flags = 0;
-  instance.accelerationStructureReference = 0;
-}
-
-void FlushAddInstanceCmds() {
-  ZoneScoped;
-  if (render_context->add_instance_cmds.size() == 0)
-    return;
-
-  VulkanBuffer<BufferType::StagingBuffer> staging_buffer = "staging buffer";
-
-  staging_buffer.Create(sizeof(Instance) * render_context->add_instance_cmds.size());
-  memcpy((char *)staging_buffer.host_address, render_context->add_instance_cmds.data(), staging_buffer.size);
-
-  VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
-    {
-      VulkanSubPass<SubPassType::Transfer> transfer_pass;
-      transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(staging_buffer);
-      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->instance_buffer);
-
-      cmd.BindSubPass(transfer_pass);
-
-      cmd.UploadBufferToBuffer(staging_buffer, render_context->instance_buffer, staging_buffer.size,
-                               /*src_offset=*/0,
-                               /*dst_offset=*/render_context->instance_count * sizeof(Instance));
-    }
-  });
-
-  render_context->instance_count += render_context->add_instance_cmds.size();
-  render_context->add_instance_cmds.clear();
-}
-
 void QueueClearVolumeCmd(const VoxelVolume &volume) {
   ZoneScoped;
   std::lock_guard<std::mutex> lock = std::lock_guard(render_context->clear_volume_cmd_mutex);
