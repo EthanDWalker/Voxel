@@ -24,6 +24,15 @@ struct IndirectLightingRayDispatch {
 };
 
 struct DispatchCommand {
+  uint32_t groups_x;
+  uint32_t groups_y;
+  uint32_t groups_z;
+  uint32_t total_x;
+  uint32_t total_y;
+  uint32_t total_z;
+};
+
+struct RWDispatchCommand {
   Atomic<uint32_t> groups_x;
   Atomic<uint32_t> groups_y;
   Atomic<uint32_t> groups_z;

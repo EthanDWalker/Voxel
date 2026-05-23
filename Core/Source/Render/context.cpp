@@ -87,7 +87,7 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.SetNoDepthTest();
     pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
     pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-    pipeline_builder.AddDescriptorLayout(mesh_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(voxelize_descriptor_layout);
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
     pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo));
     pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "voxelize.slang",
@@ -102,7 +102,7 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.SetNoDepthTest();
     pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
     pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-    pipeline_builder.AddDescriptorLayout(mesh_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(voxelize_descriptor_layout);
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
     pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo));
     pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "voxelize.slang",
@@ -187,14 +187,14 @@ void RenderContext::Create(const Spec &spec) {
 
   albedo_sampler.Create(SamplerFilter::Linear, SamplerFilter::Linear);
 
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);
-  DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr, spec.max_meshes);
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);
+  DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr);
   DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&albedo_sampler);
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,
-                                 mesh_descriptor_layout);
+                                 voxelize_descriptor_layout);
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,
-                              mesh_descriptor_layout, mesh_descriptor);
+                              voxelize_descriptor_layout, voxelize_descriptor);
   DescriptorBuilder::Reset();
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {

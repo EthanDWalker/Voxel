@@ -14,7 +14,7 @@ struct SparseVoxelTree {
   static const u32 SENTINAL = 0xFFFFFFFF;
 
   static const u32 MAX_PAGES = 100'000;
-  static const u32 MAX_DEPTH = 5;
+  static const u32 MAX_DEPTH = 6;
 
   static const u32 PAGE_SIZE_EXP = 17;
   static const u32 PAGE_SIZE = 1 << PAGE_SIZE_EXP;

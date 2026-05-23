@@ -5,14 +5,14 @@
 #include "Include/voxel_tree.slang"
 
 [[vk::binding(2, 0)]]
-Texture2D<float4> albedo_image_arr[];
+Texture2D<float4> albedo_image;
 
 [[vk::binding(3, 0)]]
 SamplerState albedo_image_sampler;
 
 [shader("fragment")]
 void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
-  const float4 color = albedo_image_arr[alloc_info.mesh_id].SampleLevel(albedo_image_sampler, info.uv, 0.0f);
+  const float4 color = albedo_image.SampleLevel(albedo_image_sampler, info.uv, 0.0f);
   if (color.a == 0.0f)
     return;
 

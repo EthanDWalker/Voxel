@@ -1,8 +1,10 @@
 #include "Core/Render/Vulkan/context.h"
+#include "Core/Util/context.h"
 #include "Core/Util/thread_pool.h"
 #include "Core/input.h"
 #include "Core/window.h"
 #include "GLFW/glfw3.h"
+#include <memory>
 
 namespace Core {
 void StartUp() {
@@ -20,10 +22,14 @@ void StartUp() {
   VulkanContext::StartUp();
 
   InputContext::StartUp();
+
+  util_context = std::make_unique<UtilContext>();
 }
 
 void ShutDown() {
   ZoneScoped;
+  util_context.reset();
+
   VulkanContext::ShutDown();
 
   ThreadPool::ShutDown();

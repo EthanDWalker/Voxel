@@ -21,7 +21,7 @@ CountedBuffer<DirectionalLight> directional_light_arr;
 RWCountedBuffer<IndirectLightingRayDispatch> ray_dispatch_arr;
 
 [[vk::binding(1, 5)]]
-RWStructuredBuffer<DispatchCommand> ray_dispatch_cmd;
+RWStructuredBuffer<RWDispatchCommand> ray_dispatch_cmd;
 
 float3 GetPixelRayDir(const uint32_t2 pixel_index, const uint32_t2 image_size, const Camera camera) {
   const float4x4 inv_view_proj =

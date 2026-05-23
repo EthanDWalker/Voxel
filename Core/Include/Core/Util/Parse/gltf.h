@@ -1,48 +1,8 @@
 #pragma once
 
-#include "Core/Render/Vulkan/other_buffer.h"
-#include "Core/Render/types.h"
+#include "Core/Util/Parse/object.h"
 #include <filesystem>
-#include <memory>
 
 namespace Core {
-struct MaterialData {
-  Vec2u32 albedo_extent;
-  u8 *albedo_data;
-
-  void Free() { free(albedo_data); }
-};
-
-struct MeshData {
-  AABB aabb;
-  std::unique_ptr<VulkanBuffer<BufferType::StagingBuffer>> vertex_host_buffer =
-      std::make_unique<VulkanBuffer<BufferType::StagingBuffer>>("mesh vertex staging buffer");
-  std::unique_ptr<VulkanBuffer<BufferType::StagingBuffer>> index_host_buffer =
-      std::make_unique<VulkanBuffer<BufferType::StagingBuffer>>("mesh index staging buffer");
-  MaterialData material;
-  u32 vertex_count;
-  u32 index_count;
-
-  void Free() { material.Free(); }
-};
-
-struct MeshFileData {
-  MeshFileData() = default;
-
-  MeshFileData(const MeshFileData &) = delete;
-  MeshFileData &operator=(const MeshFileData &) = delete;
-
-  MeshFileData(MeshFileData &&) = default;
-  MeshFileData &operator=(MeshFileData &&) = default;
-
-  std::vector<MeshData> mesh_data_arr;
-
-  ~MeshFileData() {
-    for (auto &mesh_data : mesh_data_arr) {
-      mesh_data.Free();
-    }
-  }
-};
-
-void ParseGlbFile(const std::filesystem::path &file_path, MeshFileData &mesh_file_data);
+void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_data);
 } // namespace Core

@@ -22,6 +22,9 @@ CountedBuffer<DirectionalLight> directional_light_arr;
 [[vk::binding(0, 5)]]
 CountedBuffer<IndirectLightingRayDispatch> ray_dispatch_arr;
 
+[[vk::binding(1, 5)]]
+StructuredBuffer<DispatchCommand> ray_dispatch_cmd;
+
 float FloatHash(uint32_t x) {
   x ^= x >> 16;
   x *= 0x7feb352dU;
@@ -93,7 +96,7 @@ float3 CastRay(float3 origin, float3 direction, uint32_t seed, float weight, con
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void CMain(const uint32_t dispatch_id: SV_DispatchThreadID, const uniform uint32_t frame_number) {
-  if (dispatch_id >= ray_dispatch_arr.count)
+  if (dispatch_id >= ray_dispatch_arr.count || dispatch_id >= ray_dispatch_cmd[0].total_x)
     return;
 
   const IndirectLightingRayDispatch dispatch = ray_dispatch_arr[dispatch_id];

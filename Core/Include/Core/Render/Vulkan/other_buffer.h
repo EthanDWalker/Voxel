@@ -20,7 +20,8 @@ template <BufferType BufferType, typename ValueType = void> struct VulkanBuffer;
 template <> struct VulkanBuffer<BufferType::ByteBuffer> : BaseVulkanBuffer {
   using BaseVulkanBuffer::BaseVulkanBuffer;
 
-  void Create(const u64 size, const VkBufferUsageFlags usage, const bool host = false, const u64 alignment = 0) {
+  void Create(const u64 size, const VkBufferUsageFlags usage, const bool host = false,
+              const u64 alignment = 0) {
     if (alignment == 0) {
       CreateBase(size, usage, host);
     } else {
@@ -93,8 +94,10 @@ struct VulkanBuffer<BufferType::StructuredBuffer, ValueType> : BaseVulkanBuffer 
 template <> struct VulkanBuffer<BufferType::StagingBuffer> : BaseVulkanBuffer {
   using BaseVulkanBuffer::BaseVulkanBuffer;
 
-  void Create(const u32 size) {
-    CreateBase(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, /*host*/ true);
+  void Create(const u32 size, const VkBufferUsageFlags other_flags = 0) {
+    CreateBase(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | other_flags,
+               /*host*/ true);
+    memset(host_address, 0, size);
   }
 
   void Destroy() { DestroyBase(); }

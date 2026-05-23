@@ -5,5 +5,5 @@
 namespace Core {
 u32 AddDirectionalLight(const DirectionalLight &dir_light);
 
-Mesh AddMesh(const MeshData &mesh_data);
+Mesh AddMesh(const MeshData &mesh_data, const MaterialData &material_data);
 }; // namespace Core

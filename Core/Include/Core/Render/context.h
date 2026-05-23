@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/indirect_buffer.h"
+#include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/Vulkan/pipeline.h"
 #include "Core/Render/Vulkan/swapchain.h"
 #include "Core/Render/camera.h"
@@ -77,12 +77,9 @@ struct RenderContext {
 
   u32 mesh_count = 0;
 
-  VulkanDescriptorLayout mesh_descriptor_layout;
-  VulkanDescriptor mesh_descriptor;
-  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, Vertex>>> vertex_buffers;
-  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, Index>>> index_buffers;
+  VulkanDescriptorLayout voxelize_descriptor_layout;
+  VulkanDescriptor voxelize_descriptor;
   VulkanSampler albedo_sampler;
-  std::vector<std::unique_ptr<VulkanImage<ImageType::Planar>>> albedo_images;
 
   VulkanBuffer<BufferType::StagingBuffer> raycast_staging_buffer = "raycast staging buffer";
   VulkanBuffer<BufferType::StructuredBuffer, Raycast> raycast_cmds_buffer = "raycast cmd buffer";

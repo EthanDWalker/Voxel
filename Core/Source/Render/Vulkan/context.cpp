@@ -55,13 +55,10 @@ void VulkanContext::StartUp() {
       instance_builder.set_app_name("Core")
           .request_validation_layers()
           .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT)
-          /*
-                .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT)
-          */
           .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
-          .set_debug_messenger_severity(VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+          .set_debug_messenger_severity(VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
                                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+                                        VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
           .set_debug_callback(VulkanDebugCallback)
           .require_api_version(1, 3)
           .build();

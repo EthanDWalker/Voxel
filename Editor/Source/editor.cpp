@@ -5,6 +5,7 @@
 #include "Core/Render/frame.h"
 #include "Core/Render/types.h"
 #include "Core/Util/Parse/gltf.h"
+#include "Core/Util/Parse/object.h"
 #include "Core/Util/log.h"
 #include "Core/Util/timer.h"
 #include "Core/input.h"
@@ -16,27 +17,28 @@ void Editor::StartUp() {
   SCOPED_TIMER("START UP")
   camera.Create(Core::render_context->main_image.GetVec2u32());
 
-  Core::MeshFileData mesh_file_data;
-  Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro.glb", mesh_file_data);
+  Core::ObjectData object_data;
+  /*{
+    Core::ObjectData test_object_data;
+    Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/bistro.glb", test_object_data);
+    Core::WriteObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro", test_object_data);
+  }*/
+  Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Sponza", object_data);
 
   Core::AABB aabb;
   aabb.min = std::numeric_limits<f32>::max();
   aabb.max = std::numeric_limits<f32>::min();
 
-  for (u32 i = 0; i < mesh_file_data.mesh_data_arr.size(); i++) {
-    SCOPED_TIMER("adding mesh");
-    aabb.min = Min(mesh_file_data.mesh_data_arr[i].aabb.min, aabb.min);
-    aabb.max = Max(mesh_file_data.mesh_data_arr[i].aabb.max, aabb.max);
-    const Core::Mesh mesh = Core::AddMesh(mesh_file_data.mesh_data_arr[i]);
+  for (u32 i = 0; i < object_data.mesh_data_arr.size(); i++) {
+    const Core::MeshData &mesh_data = object_data.mesh_data_arr[i];
+    const Core::Mesh mesh = Core::AddMesh(mesh_data, object_data.material_data_arr[mesh_data.material_index]);
     Core::QueueAddInstanceCmd(mesh);
   }
-
-  Core::Log("min: {} max : {}", aabb.min.String(), aabb.max.String());
 
   Core::FlushAddInstanceCmds();
 
   const Core::DirectionalLight dir_light = {
-      .direction = Normalize(Vec3f32(-0.0f, -1.0f, -0.0f) + 1e-3f),
+      .direction = Normalize(Vec3f32(-0.3f, -1.0f, -0.2f) + 1e-3f),
       .intesity = 8.0f,
       .color = Vec3f32(1.0f),
   };
