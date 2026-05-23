@@ -2,3 +2,5 @@ Build/
 VSBuild/
 .cache/
 *.spv
+*.gltf
+*.glb
