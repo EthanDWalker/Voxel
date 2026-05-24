@@ -1,6 +1,6 @@
 #pragma once
 
-static const uint32_t PTR_STACK_SIZE = 4;
+static const uint32_t PTR_STACK_SIZE = 5;
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
 static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
 static const uint32_t SENTINAL = 0xFFFFFFFF;
@@ -13,10 +13,64 @@ enum Axis {
   Z,
 };
 
+struct Instance {
+  float4 _row_0;
+  float4 _row_1;
+  float4 _row_2;
+  uint32_t _mesh_id_mask;
+  uint32_t _binding_table_offset_flags;
+  uint2 _blas_address;
+
+  property float4x4 matrix {
+    get { return float4x4(_row_0, _row_1, _row_2, float4(0.0f, 0.0f, 0.0f, 1.0f)); }
+    set {
+      _row_0 = newValue[0];
+      _row_1 = newValue[1];
+      _row_2 = newValue[2];
+    }
+  }
+
+  property uint32_t mesh_index {
+    get { return _mesh_id_mask & 0xFFFFFF; }
+  }
+
+  property float3 translation {
+    get { return float3(_row_0[3], _row_1[3], _row_2[3]); }
+    set {
+      _row_0[3] = newValue[0];
+      _row_1[3] = newValue[1];
+      _row_2[3] = newValue[2];
+    }
+  }
+
+  bool Exists() { return any(_row_0 != float4(0.0f)); }
+};
+
 struct DirectionalLight {
   float3 direction;
   float intensity;
   float3 color;
+};
+
+struct Mesh {
+  float min_bound_x;
+  float min_bound_y;
+  float min_bound_z;
+
+  float max_bound_x;
+  float max_bound_y;
+  float max_bound_z;
+
+  uint32_t index_count;
+  uint32_t albedo_image_index;
+
+  property float3 min_bound {
+    get { return float3(min_bound_x, min_bound_y, min_bound_z); }
+  };
+
+  property float3 max_bound {
+    get { return float3(max_bound_x, max_bound_y, max_bound_z); }
+  };
 };
 
 struct IndirectLightingRayDispatch {
@@ -85,6 +139,8 @@ struct ByteBuffer : IBuffer {
 struct CountedBufferHeader {
   uint32_t max_count;
   uint32_t count;
+  uint32_t _p0;
+  uint32_t _p1;
 };
 
 struct RWCountedBuffer<T> {

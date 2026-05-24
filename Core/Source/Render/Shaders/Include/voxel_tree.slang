@@ -95,7 +95,7 @@ struct VoxelizeInfo {
 struct AllocateInfo {
   uint32_t depth;
   uint32_t leaf;
-  uint32_t mesh_id;
+  uint32_t instance_index;
 };
 
 struct BaseTreeHeader<T>
@@ -190,8 +190,11 @@ static const uint32_t memory_index = spirv_asm {
         result:$$uint = OpLoad builtin(LocalInvocationIndex:uint);
     };
 
-float3 GetWorldPositionCenter(const uint32_t3 tree_index) {
-  return tree_index * voxel_size + voxel_tree_header.min_bound + (voxel_size * 0.5f);
+float3 GetWorldPositionCenter(const uint32_t3 tree_index, const uint32_t level) {
+  const uint32_t level_shift = ((voxel_tree_header.max_depth - 1) - level) << 1;
+  const float level_voxel_size = FloatMultiplyBy2ToN(voxel_size, level_shift);
+  return (tree_index >> level_shift) * level_voxel_size + voxel_tree_header.min_bound +
+         (level_voxel_size * 0.5f);
 }
 
 vector<uint32_t, N> GetTreeIndex<let N : int>(const vector<float, N> p) {

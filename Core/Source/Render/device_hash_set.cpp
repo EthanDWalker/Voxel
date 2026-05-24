@@ -34,6 +34,7 @@ void DeviceHashSet::Recreate(const u32 size, const VkShaderStageFlags shader_sta
   }
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
+    cmd.BeginDebugPass("device hash set reinit");
     VulkanSubPass<SubPassType::Transfer> copy_pass;
 
     for (u32 i = 0; i < swapped_data.size(); i++) {
@@ -51,6 +52,7 @@ void DeviceHashSet::Recreate(const u32 size, const VkShaderStageFlags shader_sta
                                sizeof(DeviceHashSetHeader));
       cmd.FillBuffer(swapped_data[i].occlusion_data_buffer, swapped_data[i].occlusion_data_buffer.size, 0);
     }
+    cmd.EndDebugPass();
   });
 }
 
@@ -92,6 +94,7 @@ void DeviceHashSet::Create(const u32 size, const VkShaderStageFlags shader_stage
   }
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
+    cmd.BeginDebugPass("device hash set init");
     VulkanSubPass<SubPassType::Transfer> copy_pass;
 
     for (u32 i = 0; i < swapped_data.size(); i++) {
@@ -109,6 +112,7 @@ void DeviceHashSet::Create(const u32 size, const VkShaderStageFlags shader_stage
       cmd.FillBuffer(swapped_data[i].set_buffer, swapped_data[i].set_buffer.size, EMPTY_KEY);
       cmd.FillBuffer(swapped_data[i].occlusion_data_buffer, swapped_data[i].occlusion_data_buffer.size, 0);
     }
+    cmd.EndDebugPass();
   });
 }
 } // namespace Core

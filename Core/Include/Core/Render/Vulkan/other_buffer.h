@@ -39,7 +39,7 @@ template <typename ValueType> struct VulkanBuffer<BufferType::CountedBuffer, Val
   u32 max_count;
   u32 cpu_append_count;
 
-  struct Header {
+  struct alignas(GPU_ALIGNMENT) Header {
     u32 max_count;
     u32 count;
   };
@@ -67,11 +67,11 @@ template <typename ValueType> struct VulkanBuffer<BufferType::CountedBuffer, Val
 
   // only call this if only appending on the CPU
   // staging buffer is assumed to only conatain one ValueType
-  void AppendCount(VulkanCommandBuffer &cmd, const VulkanBuffer<BufferType::StagingBuffer> &staging_buffer) {
-    cmd.FillBuffer(*this, sizeof(u32), cpu_append_count, offsetof(Header, count));
-    cmd.UploadBufferToBuffer(staging_buffer, *this, sizeof(ValueType), 0,
+  void Append(VulkanCommandBuffer &cmd, const VulkanBuffer<BufferType::StagingBuffer> &staging_buffer, const u32 count = 1) {
+    cmd.UploadBufferToBuffer(staging_buffer, *this, sizeof(ValueType) * count, 0,
                              sizeof(ValueType) * cpu_append_count + sizeof(Header));
-    cpu_append_count++;
+    cpu_append_count += count;
+    cmd.FillBuffer(*this, sizeof(u32), cpu_append_count, offsetof(Header, count));
   };
 
   void Destroy() { DestroyBase(); }

@@ -70,8 +70,8 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
     if (ret == 0) {
       const float3 L = -directional_light_arr[0].direction;
 
-      const float3 ray_origin =
-          StepTreeRaySingle(GetWorldPositionCenter(res.hit_tree_index), res.hit_normal, res.hit_level);
+      const float3 ray_origin = StepTreeRaySingle(GetWorldPositionCenter(res.hit_tree_index, res.hit_level),
+                                                  res.hit_normal, res.hit_level);
 
       RaycastResult shadow_res;
       Raycast(ray_origin, L, shadow_res);

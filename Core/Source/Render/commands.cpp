@@ -29,6 +29,8 @@ void FlushClearVolumeCmds() {
   ThreadPool::QueueTask([local_cmds](u32 id) {
     SCOPED_TIMER("flush clear cmds");
     VulkanContext::Submit([local_cmds](VulkanCommandBuffer &cmd) {
+      cmd.BeginDebugPass("clear volume cmds");
+
       cmd.BindPipeline(render_context->clear_volume_pipeline);
       cmd.BindDescriptors({render_context->voxel_tree.descriptor});
 
@@ -40,6 +42,7 @@ void FlushClearVolumeCmds() {
         cmd.Dispatch((max_tree_index - min_tree_index));
         cmd.ClearPushConstants();
       }
+      cmd.EndDebugPass();
     });
   });
 }
@@ -60,6 +63,7 @@ void FlushRaycastCmds() {
   std::lock_guard<std::mutex> lock = std::lock_guard(render_context->raycast_cmd_mutex);
   VulkanContext::Submit([](VulkanCommandBuffer &cmd) {
     {
+      cmd.BeginDebugPass("raycast cmd copy from host");
       VulkanSubPass<SubPassType::Transfer> copy_pass;
       copy_pass.AddDependency<DeviceResourceType::TransferSrc>(render_context->raycast_staging_buffer);
       copy_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->raycast_cmds_buffer);
@@ -70,9 +74,11 @@ void FlushRaycastCmds() {
              sizeof(Raycast) * render_context->raycast_cmds.size());
       cmd.UploadBufferToBuffer(render_context->raycast_staging_buffer, render_context->raycast_cmds_buffer,
                                sizeof(Raycast) * render_context->raycast_cmds.size());
+      cmd.EndDebugPass();
     }
 
     {
+      cmd.BeginDebugPass("raycast cmd pass");
       VulkanSubPass<SubPassType::Compute> raycast_pass;
       raycast_pass.AddDependency<DeviceResourceType::Buffer>(render_context->raycast_cmds_buffer);
       raycast_pass.AddDependency<DeviceResourceType::RWBuffer>(render_context->raycast_results_buffer);
@@ -82,9 +88,11 @@ void FlushRaycastCmds() {
       cmd.BindPipeline(render_context->raycast_cmd_pipeline);
       cmd.BindDescriptors({render_context->voxel_tree.descriptor, render_context->raycast_descriptor});
       cmd.Dispatch(Vec3u32(render_context->raycast_cmds.size(), 1, 1));
+      cmd.EndDebugPass();
     }
 
     {
+      cmd.BeginDebugPass("raycast cmd copy to host");
       VulkanSubPass<SubPassType::Transfer> copy_pass;
       copy_pass.AddDependency<DeviceResourceType::TransferSrc>(render_context->raycast_results_buffer);
       copy_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->raycast_staging_buffer);
@@ -93,6 +101,7 @@ void FlushRaycastCmds() {
 
       cmd.UploadBufferToBuffer(render_context->raycast_results_buffer, render_context->raycast_staging_buffer,
                                sizeof(RaycastResult) * render_context->raycast_cmds.size());
+      cmd.EndDebugPass();
     }
   });
 

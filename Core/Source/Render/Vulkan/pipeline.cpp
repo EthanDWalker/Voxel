@@ -522,6 +522,7 @@ void PipelineBuilder<PipelineType::Raytrace>::Build(VulkanPipeline<PipelineType:
     shader_stage_cis[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     shader_stage_cis[i].module = shader_modules[i];
   }
+
   shader_stage_cis[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
   shader_stage_cis[0].pName = "RayGenMain";
   shader_stage_cis[1].stage = VK_SHADER_STAGE_MISS_BIT_KHR;

@@ -64,6 +64,7 @@ SparseVoxelTree::SparseVoxelTree() {
   memcpy(tree_header_host_buffer.host_address, &header, sizeof(TreeHeader));
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
+    cmd.BeginDebugPass("sparse voxel tree init");
     VulkanSubPass<SubPassType::Transfer> transfer_pass;
     transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(tree_header_host_buffer);
     transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(empty_page_host_buffer);
@@ -84,6 +85,7 @@ SparseVoxelTree::SparseVoxelTree() {
     for (u32 i = 0; i < leaf_pages.size(); i++) {
       cmd.FillBuffer(*leaf_pages[i], leaf_pages[i]->size, 0);
     }
+    cmd.EndDebugPass();
   });
 }
 

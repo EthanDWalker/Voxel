@@ -2,6 +2,7 @@
 #include "Core/Render/add.h"
 #include "Core/Render/commands.h"
 #include "Core/Render/context.h"
+#include "Core/Render/debug_frame.h"
 #include "Core/Render/frame.h"
 #include "Core/Render/types.h"
 #include "Core/Util/Parse/object.h"
@@ -10,7 +11,6 @@
 #include "Core/input.h"
 #include "Core/window.h"
 #include <filesystem>
-#include <limits>
 
 void Editor::StartUp() {
   SCOPED_TIMER("START UP")
@@ -18,10 +18,6 @@ void Editor::StartUp() {
 
   Core::ObjectData object_data;
   Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro", object_data);
-
-  Core::AABB aabb;
-  aabb.min = std::numeric_limits<f32>::max();
-  aabb.max = std::numeric_limits<f32>::min();
 
   {
     SCOPED_TIMER("mesh voxelize");
@@ -82,6 +78,9 @@ void Editor::Run() {
 
     Core::Frame(camera);
 
+    if (Core::InputContext::GetHeld(Core::Input::B))
+      Core::DrawDebugAABBs();
+
     Core::EndFrame(resize);
 
     if (resize) {
@@ -96,7 +95,7 @@ void Editor::Run() {
       Core::Window::SetShouldClose(true);
 
     if (Core::InputContext::GetHeld(Core::Input::F))
-      camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND) / 100.0f;
+      camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND) / 10.0f;
     else
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
 

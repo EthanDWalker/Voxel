@@ -22,8 +22,6 @@ void WriteMeshFile(const std::filesystem::path &folder_path, const MeshData &mes
 
   file.write((const char *)mesh_data.vertex_host_buffer->host_address, mesh_data.vertex_host_buffer->size);
   file.write((const char *)mesh_data.index_host_buffer->host_address, mesh_data.index_host_buffer->size);
-
-  Core::Log("writing mesh file {}.mesh", mesh_data.name);
 }
 
 void ReadMeshFile(MeshData &mesh_data, const std::filesystem::path &file_path) {
@@ -43,8 +41,6 @@ void ReadMeshFile(MeshData &mesh_data, const std::filesystem::path &file_path) {
 
   file.read((char *)mesh_data.vertex_host_buffer->host_address, mesh_data.vertex_host_buffer->size);
   file.read((char *)mesh_data.index_host_buffer->host_address, mesh_data.index_host_buffer->size);
-
-  Core::Log("read mesh file {}.mesh", mesh_data.name);
 }
 
 void WriteMaterialFile(const std::filesystem::path &folder_path, const MaterialData &material_data) {
@@ -64,8 +60,6 @@ void WriteMaterialFile(const std::filesystem::path &folder_path, const MaterialD
 
   file.write((const char *)&header, sizeof(MaterialFileHeader));
   file.write((const char *)material_data.compressed_albedo_data_buffer->host_address, header.image_data_size);
-
-  Core::Log("writing material file {}.material with size {}", material_data.name, header.image_data_size);
 }
 
 void ReadMaterialFile(MaterialData &material_data, const std::filesystem::path &file_path) {
@@ -81,8 +75,6 @@ void ReadMaterialFile(MaterialData &material_data, const std::filesystem::path &
   file.read((char *)material_data.compressed_albedo_data_buffer->host_address, header.image_data_size);
 
   material_data.name = file_path.stem().string();
-
-  Core::Log("reading material {}.material with size {}", material_data.name, header.image_data_size);
 }
 
 // writes length of string then string w/o null terminal character at the end
@@ -128,6 +120,7 @@ void WriteObjectFolder(const std::filesystem::path &folder_path, const ObjectDat
   ObjectFolderHeader header;
   header.material_descriptor_count = object_data.material_data_arr.size();
   header.mesh_descriptor_count = object_data.mesh_data_arr.size();
+  header.instance_data_count = object_data.instance_data_arr.size();
 
   file.write((const char *)&header, sizeof(ObjectFolderHeader));
 
@@ -138,6 +131,9 @@ void WriteObjectFolder(const std::filesystem::path &folder_path, const ObjectDat
   for (u32 i = 0; i < header.mesh_descriptor_count; i++) {
     WriteString(file, object_data.mesh_data_arr[i].name);
   }
+
+  file.write((const char *)object_data.instance_data_arr.data(),
+             sizeof(InstanceData) * object_data.instance_data_arr.size());
 }
 
 // reads string with length as u32 in front of string
@@ -197,6 +193,10 @@ void ReadObjectFolder(const std::filesystem::path &folder_path, ObjectData &obje
 
     ReadMeshFile(object_data.mesh_data_arr[i], mesh_file_path);
   }
+
+  object_data.instance_data_arr.resize(header.instance_data_count);
+
+  file.read((char *)object_data.instance_data_arr.data(), sizeof(Instance) * header.instance_data_count);
 }
 
 } // namespace Core

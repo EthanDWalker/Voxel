@@ -3,27 +3,24 @@
 #include "Core/Render/Vulkan/command_buffer.h"
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/util.h"
-#include "Core/Render/types.h"
 
 namespace Core {
 
-VulkanAccelerationStructure::~VulkanAccelerationStructure() {
+BaseVulkanAccelerationStructure::~BaseVulkanAccelerationStructure() {
   ZoneScoped;
   vkDestroyAccelerationStructureKHR(VulkanContext::device, obj, nullptr);
   buffer.DestroyBase();
 }
 
-void VulkanAccelerationStructure::RecreateTopLevel(
-    const VulkanBuffer<BufferType::StructuredBuffer, Instance> &instance_buffer, const u32 instance_count) {
+void BaseVulkanAccelerationStructure::DestroyBase() {
   ZoneScoped;
   vkDestroyAccelerationStructureKHR(VulkanContext::device, obj, nullptr);
   buffer.DestroyBase();
-  CreateTopLevel(instance_buffer, instance_count);
 }
 
-void VulkanAccelerationStructure::CreateBase(const VkAccelerationStructureGeometryKHR &geometry,
-                                             const VkAccelerationStructureBuildRangeInfoKHR &offset,
-                                             const VkAccelerationStructureTypeKHR type) {
+void BaseVulkanAccelerationStructure::CreateBase(const VkAccelerationStructureGeometryKHR &geometry,
+                                                 const VkAccelerationStructureBuildRangeInfoKHR &offset,
+                                                 const VkAccelerationStructureTypeKHR type) {
   ZoneScoped;
   std::vector<u32> max_primitive_count(1);
   max_primitive_count[0] = offset.primitiveCount;
@@ -97,47 +94,4 @@ void VulkanAccelerationStructure::CreateBase(const VkAccelerationStructureGeomet
   scratch_buffer.DestroyBase();
 }
 
-void VulkanAccelerationStructure::CreateBottomLevel(
-    const VulkanBuffer<BufferType::StructuredBuffer, Vertex> &vertex_buffer,
-    const VulkanBuffer<BufferType::StructuredBuffer, Index> &index_buffer) {
-  ZoneScoped;
-  VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
-  triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-  triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-  triangles.vertexData.deviceAddress = vertex_buffer.device_address;
-  triangles.vertexStride = sizeof(Vertex);
-  triangles.indexType = VK_INDEX_TYPE_UINT32;
-  triangles.indexData.deviceAddress = index_buffer.device_address;
-  triangles.maxVertex = (vertex_buffer.size / sizeof(Vertex)) - 1;
-
-  VkAccelerationStructureGeometryKHR geometry{};
-  geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-  geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-  geometry.flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR | VK_GEOMETRY_OPAQUE_BIT_KHR;
-  geometry.geometry.triangles = triangles;
-
-  VkAccelerationStructureBuildRangeInfoKHR offset{};
-  offset.primitiveCount = (index_buffer.size / sizeof(Index)) / 3;
-
-  CreateBase(geometry, offset, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR);
-}
-
-void VulkanAccelerationStructure::CreateTopLevel(
-    const VulkanBuffer<BufferType::StructuredBuffer, Instance> &instance_buffer, const u32 instance_count) {
-  ZoneScoped;
-  VkAccelerationStructureGeometryInstancesDataKHR instances{};
-  instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-  instances.data.deviceAddress = instance_buffer.device_address;
-
-  VkAccelerationStructureGeometryKHR geometry{};
-  geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-  geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-  geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-  geometry.geometry.instances = instances;
-
-  VkAccelerationStructureBuildRangeInfoKHR offset{};
-  offset.primitiveCount = instance_count;
-
-  CreateBase(geometry, offset, VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR);
-}
 } // namespace Core

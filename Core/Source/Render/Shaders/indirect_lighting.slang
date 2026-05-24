@@ -86,7 +86,8 @@ float3 CastRay(float3 origin, float3 direction, uint32_t seed, float weight, con
       return color * SampleEnvironmentColor(direction, directional_light_arr[0]) * weight;
     }
 
-    origin = StepTreeRaySingle(GetWorldPositionCenter(res.hit_tree_index), res.hit_normal, res.hit_level);
+    origin = StepTreeRaySingle(GetWorldPositionCenter(res.hit_tree_index, res.hit_level), res.hit_normal,
+                               res.hit_level);
     seed = Hash(seed ^ (res.leaf_ptr) ^ (i * 4312u));
     direction = CosineWeightedHemisphere(res.hit_normal, Random2(seed));
     weight = dot(res.hit_normal, direction) / PI;
@@ -108,7 +109,7 @@ void CMain(const uint32_t dispatch_id: SV_DispatchThreadID, const uniform uint32
   const float3 normal = leaf_node.normal;
 
   const float3 ray_origin =
-      StepTreeRaySingle(GetWorldPositionCenter(dispatch.tree_index), leaf_node.normal, level);
+      StepTreeRaySingle(GetWorldPositionCenter(dispatch.tree_index, level), leaf_node.normal, level);
 
   const uint32_t seed = Hash(leaf_ptr ^ (frame_number * 9781u) ^ (dispatch_id.x * dispatch_id.x * 32197u));
   const float3 indirect_lighting_dir = CosineWeightedHemisphere(normal, Random2(seed));

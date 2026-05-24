@@ -229,9 +229,7 @@ void VulkanCommandBuffer::Blit(const BaseVulkanImage &src_image, const BaseVulka
 }
 
 void VulkanCommandBuffer::BeginRendering(const std::vector<BaseVulkanImage *> &attachment_images,
-                                         BaseVulkanImage *depth_image, Vec2u32 extent,
-                                         VkAttachmentLoadOp depth_load_op,
-                                         VkAttachmentStoreOp depth_store_op) {
+                                         BaseVulkanImage *depth_image, Vec2u32 extent, bool clear) {
   ZoneScoped;
   VkViewport viewport = Viewport({extent.width, extent.height, 1});
   vkCmdSetViewport(obj, 0, 1, &viewport);
@@ -251,7 +249,7 @@ void VulkanCommandBuffer::BeginRendering(const std::vector<BaseVulkanImage *> &a
     attachements.reserve(attachment_images.size());
 
     for (BaseVulkanImage *image : attachment_images) {
-      attachements.push_back(AttachmentInfo(image->view, VK_NULL_HANDLE, &clear_value,
+      attachements.push_back(AttachmentInfo(image->view, VK_NULL_HANDLE, clear ? &clear_value : nullptr,
                                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL));
     }
 
@@ -260,7 +258,7 @@ void VulkanCommandBuffer::BeginRendering(const std::vector<BaseVulkanImage *> &a
   }
   if (depth_image) {
     depth_attachment = DepthAttachmentInfo(depth_image->view, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-                                           depth_load_op, depth_store_op);
+                                           clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
     rendering_info.pDepthAttachment = &depth_attachment;
   }
 

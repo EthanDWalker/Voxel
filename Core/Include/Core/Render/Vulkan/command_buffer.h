@@ -33,8 +33,7 @@ struct VulkanCommandBuffer {
   void End();
 
   void BeginRendering(const std::vector<BaseVulkanImage *> &attachment_images, BaseVulkanImage *depth_image,
-                      Vec2u32 extent, VkAttachmentLoadOp depth_load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
-                      VkAttachmentStoreOp depth_store_op = VK_ATTACHMENT_STORE_OP_STORE);
+                      Vec2u32 extent, bool clear);
   void BeginMultiRendering(const u32 viewport_count, const u32 layer_count,
                            const std::vector<BaseVulkanImage *> &attachment_images,
                            BaseVulkanImage *depth_image, Vec2u32 extent,

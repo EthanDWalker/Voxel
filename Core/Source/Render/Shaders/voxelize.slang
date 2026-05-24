@@ -3,10 +3,13 @@
 #include "Include/voxel_tree.slang"
 
 [[vk::binding(0, 0)]]
-StructuredBuffer<Vertex> vertex_arr[];
+StructuredBuffer<Vertex> vertex_arr_arr[];
 
 [[vk::binding(1, 0)]]
-StructuredBuffer<uint32_t> index_arr[];
+StructuredBuffer<uint32_t> index_arr_arr[];
+
+[[vk::binding(3, 0)]]
+StructuredBuffer<Instance> instance_arr;
 
 struct VertexInfo {
   uint32_t vertex_id;
@@ -24,18 +27,45 @@ TriangleInfo VMain(const uint32_t triangle_id: SV_VertexID, const uniform Alloca
   return info;
 }
 
+float3x3 GetNormalMatrix(const float4x4 m) {
+  const float a00 = m[0][0], a01 = m[0][1], a02 = m[0][2];
+  const float a10 = m[1][0], a11 = m[1][1], a12 = m[1][2];
+  const float a20 = m[2][0], a21 = m[2][1], a22 = m[2][2];
+
+  const float b01 = a22 * a11 - a12 * a21;
+  const float b11 = -a22 * a10 + a12 * a20;
+  const float b21 = a21 * a10 - a11 * a20;
+
+  const float det = a00 * b01 + a01 * b11 + a02 * b21;
+
+  // clang-format off
+  return transpose(
+    float3x3(
+      b01, (-a22 * a01 + a02 * a21), (a12 * a01 - a02 * a11), 
+      b11, (a22 * a00 - a02 * a20) , (-a12 * a00 + a02 * a10), 
+      b21, (-a21 * a00 + a01 * a20), (a11 * a00 - a01 * a10)
+    ) / det
+  );
+  // clang-format on
+}
+
 [shader("geometry")]
 [maxvertexcount(3)]
 void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInfo> output_stream,
            const uniform AllocateInfo alloc_info) {
-  const Vertex input[3] = {
-    vertex_arr[alloc_info.mesh_id][index_arr[alloc_info.mesh_id][triangle_info[0].triangle_id * 3 + 0]],
-    vertex_arr[alloc_info.mesh_id][index_arr[alloc_info.mesh_id][triangle_info[0].triangle_id * 3 + 1]],
-    vertex_arr[alloc_info.mesh_id][index_arr[alloc_info.mesh_id][triangle_info[0].triangle_id * 3 + 2]],
-  };
+  const Instance instance = instance_arr[alloc_info.instance_index];
+  const uint32_t mesh_id = instance.mesh_index;
 
-  const float3 normal =
-      normalize(cross(input[1].position - input[0].position, input[2].position - input[0].position));
+  Vertex input[3];
+
+  for (uint32_t i = 0; i < 3; i++) {
+    input[i] = vertex_arr_arr[mesh_id][index_arr_arr[mesh_id][triangle_info[0].triangle_id * 3 + i]];
+  }
+
+  const float4x4 instance_matrix = instance.matrix;
+  const float3x3 normal_matrix = GetNormalMatrix(instance_matrix);
+
+  const float3 normal = normalize(mul(input[0].normal, normal_matrix));
   const float3 abs_normal = abs(normal);
 
   const Axis projection_axis = (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) ? Axis::X
@@ -44,14 +74,15 @@ void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInf
 
   for (uint32_t i = 0; i < 3; i++) {
     VoxelizeInfo voxelize_info;
-    const float3 pos = (input[i].position / (box_size / 2.0f));
+    voxelize_info.uv = float16_t2(input[i].uv);
+    voxelize_info.world_position = mul(instance.matrix, float4(input[i].position, 1.0f)).xyz;
+    voxelize_info.normal = mul(normal_matrix, input[i].normal);
+
+    const float3 pos = (voxelize_info.world_position / (box_size / 2.0f));
     voxelize_info.position = float4((projection_axis == Axis::X)   ? pos.yz
                                     : (projection_axis == Axis::Y) ? pos.xz
                                                                    : pos.xy,
                                     1.0f, 1.0f);
-    voxelize_info.uv = float16_t2(input[i].uv);
-    voxelize_info.world_position = input[i].position;
-    voxelize_info.normal = input[i].normal;
     output_stream.Append(voxelize_info);
   }
   output_stream.RestartStrip();

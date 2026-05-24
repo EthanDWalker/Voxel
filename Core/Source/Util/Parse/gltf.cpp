@@ -85,6 +85,7 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
 
   object_data.name = file_path.filename().stem().string();
 
+  const JsonArray node_array = json_object.FindNoFail("nodes");
   const JsonArray mesh_array = json_object.FindNoFail("meshes");
   const JsonArray accessor_array = json_object.FindNoFail("accessors");
   const JsonArray buffer_view_array = json_object.FindNoFail("bufferViews");
@@ -98,18 +99,22 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
 
   const u64 bin_offset = sizeof(GlbHeader) + sizeof(GlbChunkHeader) * 2 + json_chunk_header.length;
 
+  std::vector<u32> mesh_index_offset;
+  mesh_index_offset.resize(mesh_array.value_count);
+
   for (u32 i = 0; i < mesh_array.value_count; i++) {
     Assert(mesh_array.value_type_arr[i] == JsonValueType::Object, "mesh array must contain objects");
     const JsonObject mesh_object = *mesh_array.value_arr[i].object;
 
     const JsonArray primitive_array = mesh_object.FindNoFail("primitives");
 
+    mesh_index_offset[i] = object_data.mesh_data_arr.size();
+
     for (u32 j = 0; j < primitive_array.value_count; j++) {
       MeshData &mesh = object_data.mesh_data_arr.emplace_back();
+
       mesh.name = mesh_object.FindNoFail("name").value_arr[0].string +
                   (primitive_array.value_count > 1 ? std::format("({})", j) : "");
-
-      Core::Log("parsing glb mesh {}", mesh.name);
 
       const JsonObject primitive_object = *primitive_array.value_arr[j].object;
 
@@ -249,8 +254,53 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
         file.read((char *)&((Index *)mesh.index_host_buffer->host_address)[i], index_stride);
       }
 
-      mesh.aabb.min = VecTypeCast<f32>(*(Vec3f64 *)position_accessor_object.FindNoFail("min").value_arr);
-      mesh.aabb.max = VecTypeCast<f32>(*(Vec3f64 *)position_accessor_object.FindNoFail("max").value_arr);
+      mesh.aabb.min.z = position_accessor_object.FindNoFail("min").value_arr[0].number;
+      mesh.aabb.min.y = position_accessor_object.FindNoFail("min").value_arr[1].number;
+      mesh.aabb.min.x = position_accessor_object.FindNoFail("min").value_arr[2].number;
+
+      mesh.aabb.max.z = position_accessor_object.FindNoFail("max").value_arr[0].number;
+      mesh.aabb.max.y = position_accessor_object.FindNoFail("max").value_arr[1].number;
+      mesh.aabb.max.x = position_accessor_object.FindNoFail("max").value_arr[2].number;
+    }
+  }
+
+  for (u32 i = 0; i < node_array.value_count; i++) {
+    const JsonObject *node_object = node_array.value_arr[i].object;
+
+    const auto mesh_id_res = node_object->Find("mesh");
+    if (!mesh_id_res.has_value()) {
+      continue;
+    }
+    const u32 mesh_id = mesh_id_res->value_arr[0].number;
+
+    Vec3f32 scale = 1.0f;
+    if (node_object->Find("scale").has_value()) {
+      scale.x = node_object->Find("scale")->value_arr[0].number;
+      scale.y = node_object->Find("scale")->value_arr[1].number;
+      scale.z = node_object->Find("scale")->value_arr[2].number;
+    }
+
+    Quat rotation;
+    if (node_object->Find("rotation").has_value()) {
+      rotation.y = node_object->Find("rotation")->value_arr[0].number;
+      rotation.z = node_object->Find("rotation")->value_arr[1].number;
+      rotation.x = node_object->Find("rotation")->value_arr[2].number;
+      rotation.w = node_object->Find("rotation")->value_arr[3].number;
+    }
+
+    Vec3f32 translation;
+    if (node_object->Find("translation").has_value()) {
+      translation.x = node_object->Find("translation")->value_arr[0].number;
+      translation.y = node_object->Find("translation")->value_arr[1].number;
+      translation.z = node_object->Find("translation")->value_arr[2].number;
+    }
+
+    const Mat4f32 instance_matrix = InstanceMatrix(translation, rotation, scale);
+    const u32 primitive_count = mesh_array.value_arr[mesh_id].object->FindNoFail("primitives").value_count;
+    for (u32 j = mesh_index_offset[mesh_id]; j < mesh_index_offset[mesh_id] + primitive_count; j++) {
+      InstanceData &instance = object_data.instance_data_arr.emplace_back();
+      instance.mesh_index = j;
+      instance.matrix = instance_matrix;
     }
   }
 }

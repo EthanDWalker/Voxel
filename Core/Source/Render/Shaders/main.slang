@@ -12,8 +12,6 @@ RWTexture2D<float> beam_image;
 
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
-[[vk::binding(1, 1)]]
-ConstantBuffer<Camera> last_camera;
 
 [[vk::binding(0, 3)]]
 CountedBuffer<DirectionalLight> directional_light_arr;
@@ -60,8 +58,8 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
         shadow_impact = float(shadow_value.in_shadow);
       } else {
         RaycastResult shadow_res;
-        const float3 shadow_ray_origin =
-            StepTreeRaySingle(GetWorldPositionCenter(res.hit_tree_index), res.hit_normal, res.hit_level);
+        const float3 shadow_ray_origin = StepTreeRaySingle(
+            GetWorldPositionCenter(res.hit_tree_index, res.hit_level), res.hit_normal, res.hit_level);
         Raycast(shadow_ray_origin, L, shadow_res);
         shadow_impact = float(shadow_res.hit);
       }

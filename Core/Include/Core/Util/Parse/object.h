@@ -29,11 +29,17 @@ struct MeshData {
   u32 index_count;
 };
 
+struct InstanceData {
+  Mat4f32 matrix;
+  u32 mesh_index;
+};
+
 struct ObjectData {
   std::string name;
 
   std::vector<MeshData> mesh_data_arr;
   std::vector<MaterialData> material_data_arr;
+  std::vector<InstanceData> instance_data_arr;
 };
 
 struct MeshFileHeader {
@@ -51,6 +57,7 @@ struct MaterialFileHeader {
 struct ObjectFolderHeader {
   u32 material_descriptor_count;
   u32 mesh_descriptor_count;
+  u32 instance_data_count;
 };
 
 void WriteObjectFolder(const std::filesystem::path &folder_path, const ObjectData &object_data);

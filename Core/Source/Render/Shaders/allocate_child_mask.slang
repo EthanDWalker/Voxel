@@ -4,24 +4,21 @@
 #define VOXEL_TREE_READ_WRITE
 #include "Include/voxel_tree.slang"
 
-struct Mesh {
-  uint32_t index_count;
-  uint32_t vertex_count;
-  uint32_t albedo_image_index;
-};
-
 [[vk::binding(2, 0)]]
 StructuredBuffer<Mesh> mesh_arr;
 
 [[vk::binding(3, 0)]]
-Texture2D<float4> albedo_image[];
+StructuredBuffer<Instance> instance_arr;
 
 [[vk::binding(4, 0)]]
+Texture2D<float4> albedo_image[];
+
+[[vk::binding(5, 0)]]
 SamplerState albedo_image_sampler;
 
 [shader("fragment")]
 void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
-  const Mesh mesh = mesh_arr[alloc_info.mesh_id];
+  const Mesh mesh = mesh_arr[instance_arr[alloc_info.instance_index].mesh_index];
   const float4 color = albedo_image[mesh.albedo_image_index].SampleLevel(albedo_image_sampler, info.uv, 0.0f);
   if (color.a == 0.0f)
     return;

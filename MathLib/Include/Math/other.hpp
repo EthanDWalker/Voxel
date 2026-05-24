@@ -1,7 +1,11 @@
 #pragma once
 
+#include "matrix.hpp"
+#include "quaternion.hpp"
 #include "types.hpp"
 #include "vector.hpp"
+#include <iostream>
+#include <format>
 
 template <typename T> constexpr const T Radians(const T degrees) {
   return degrees * static_cast<T>(0.01745329251994329576923690768489);
@@ -158,4 +162,25 @@ static Vec3f32 UnpackNormal(const u16 data) {
   normal.x = sin(phi) * cos(theta);
 
   return Normalize(normal);
+}
+
+static Mat4f32 InstanceMatrix(const Vec3f32 translation, const Quat rotation, const Vec3f32 scale) {
+  Mat3f32 inner_matrix = 1.0f;
+  for (u32 i = 0; i < 3; i++) {
+    inner_matrix[i][i] = scale[i];
+  }
+  inner_matrix = ToRotationMatrix(rotation) * inner_matrix;
+
+  Mat4f32 matrix;
+  for (u32 col = 0; col < 3; col++) {
+    for (u32 row = 0; row < 3; row++) {
+      matrix[col][row] = inner_matrix[col][row];
+    }
+  }
+
+  for (u32 i = 0; i < 3; i++) {
+    matrix[i][3] = translation[i];
+  }
+
+  return matrix;
 }

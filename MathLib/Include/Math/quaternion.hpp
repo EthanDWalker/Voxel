@@ -49,8 +49,8 @@ struct Quat {
 
   constexpr const std::string String() const {
     std::string final = "";
-    return final + std::to_string(w) + " + " + std::to_string(x) + "i + " + std::to_string(y) +
-           "j + " + std::to_string(z) + "k";
+    return final + std::to_string(w) + " + " + std::to_string(x) + "i + " + std::to_string(y) + "j + " +
+           std::to_string(z) + "k";
   }
 };
 

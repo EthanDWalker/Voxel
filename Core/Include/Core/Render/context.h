@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Render/Vulkan/acceleration_structure.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/indirect_buffer.h"
@@ -53,6 +54,7 @@ struct RenderContext {
 
   VulkanPipeline<PipelineType::Graphic> allocate_pipeline;
   VulkanPipeline<PipelineType::Graphic> allocate_child_mask_pipeline;
+  VulkanPipeline<PipelineType::Graphic> debug_aabb_pipeline;
 
   VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
@@ -73,6 +75,11 @@ struct RenderContext {
 
   std::vector<VoxelVolume> clear_volume_cmds;
   std::mutex clear_volume_cmd_mutex;
+
+  VulkanBuffer<BufferType::CountedBuffer, Instance> instance_counted_buffer = "instance counted buffer";
+  VulkanBuffer<BufferType::CountedBuffer, Mesh> mesh_counted_buffer = "mesh counted buffer";
+  VulkanDescriptorLayout mesh_descriptor_layout;
+  VulkanDescriptor mesh_descriptor;
 
   VulkanDescriptorLayout voxelize_descriptor_layout;
   VulkanDescriptor voxelize_descriptor;

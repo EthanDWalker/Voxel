@@ -153,10 +153,12 @@ void VulkanContext::StartUp() {
           .add_required_extension_features(as_features)
           .add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
           .add_required_extension_features(raytracing_features)
+
           .add_required_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME)
           .add_required_extension_features(fault_features)
           .add_required_extension(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)
           .add_required_extension_features(raytracing_validation_features)
+
           .add_required_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME)
           .add_required_extension_features(float_atomic_features)
           .select()
