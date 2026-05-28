@@ -12,6 +12,7 @@ struct alignas(GPU_ALIGNMENT) AllocateInfo {
   u32 depth;
   u32 leaf;
   u32 instance_index;
+  u32 albedo_index;
 };
 
 struct alignas(GPU_ALIGNMENT) Vertex {
@@ -52,17 +53,12 @@ struct alignas(GPU_ALIGNMENT) RaycastResult {
   bool hit;
 };
 
-struct alignas(GPU_ALIGNMENT) AABB {
+struct AABB {
   Vec3f32 min;
-  u32 _p0;
   Vec3f32 max;
-  u32 _p1;
 };
 
-// must fit VkAabbPositionsKHR
-struct alignas(GPU_ALIGNMENT) Mesh {
-  Vec3f32 min_bound;
-  Vec3f32 max_bound;
+struct Mesh {
   u32 index_count;
   u32 albedo_image_index;
 };

@@ -1,11 +1,8 @@
 #include "Include/camera.slang"
 #include "Include/common.slang"
 
-[[vk::binding(0, 0)]]
-CountedBuffer<Mesh> mesh_arr;
-
 [[vk::binding(1, 0)]]
-CountedBuffer<Instance> instance_arr;
+CountedBuffer<AABB> aabb_arr;
 
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
@@ -16,18 +13,19 @@ struct FragmentInfo {
 };
 
 [shader("vertex")]
-uint32_t VMain(const uint32_t instance_index: SV_VertexID) { return instance_index; }
+uint32_t VMain(const uint32_t aabb_index: SV_VertexID) { return aabb_index; }
 
 [shader("geometry")]
 [maxvertexcount(24)]
 void GMain(point uint32_t point_info[1], inout LineStream<FragmentInfo> output_stream) {
+  if (point_info[0] >= aabb_arr.count) {
+    return;
+  }
+
   const float4x4 camera_view_proj = mul(camera.projection, camera.view);
 
-  const float4x4 instance_matrix = instance_arr[point_info[0]].matrix;
-  const uint32_t mesh_index = instance_arr[point_info[0]].mesh_index;
-
-  const float3 min_bound = mul(instance_matrix, float4(mesh_arr[mesh_index].min_bound, 1.0f)).xyz;
-  const float3 max_bound = mul(instance_matrix, float4(mesh_arr[mesh_index].max_bound, 1.0f)).xyz;
+  const float3 min_bound = aabb_arr[point_info[0]].min_bound;
+  const float3 max_bound = aabb_arr[point_info[0]].max_bound;
 
   const float3 corners[8] = {
     float3(min_bound.x, min_bound.y, min_bound.z), float3(max_bound.x, min_bound.y, min_bound.z),

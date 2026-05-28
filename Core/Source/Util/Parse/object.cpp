@@ -196,7 +196,7 @@ void ReadObjectFolder(const std::filesystem::path &folder_path, ObjectData &obje
 
   object_data.instance_data_arr.resize(header.instance_data_count);
 
-  file.read((char *)object_data.instance_data_arr.data(), sizeof(Instance) * header.instance_data_count);
+  file.read((char *)object_data.instance_data_arr.data(), sizeof(InstanceData) * header.instance_data_count);
 }
 
 } // namespace Core

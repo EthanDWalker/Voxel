@@ -10,7 +10,7 @@
 #include <chrono>
 
 namespace Core {
-RenderContext *render_context = nullptr;
+std::unique_ptr<RenderContext> render_context;
 
 void RenderContext::RecreatePipelines() {
   ZoneScoped;
@@ -126,7 +126,7 @@ void RenderContext::CreatePipelines() {
   }
 }
 
-void RenderContext::Create(const Spec &spec) {
+RenderContext::RenderContext(const RenderSpec &spec) {
   ZoneScoped;
 
   start_time = std::chrono::high_resolution_clock::now();
@@ -180,11 +180,6 @@ void RenderContext::Create(const Spec &spec) {
     DescriptorBuilder::Reset();
   }
 
-  mesh_counted_buffer.Create(
-      spec.max_meshes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                           VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR);
-
   instance_counted_buffer.Create(
       spec.max_meshes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -209,18 +204,20 @@ void RenderContext::Create(const Spec &spec) {
 
   albedo_sampler.Create(SamplerFilter::Linear, SamplerFilter::Linear);
 
+  aabb_counted_buffer.Create(100'000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // vertex
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // index
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);                        // meshes
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);                        // instances
   DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr, spec.max_meshes); // albedo
   DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&albedo_sampler);               // sampler
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&aabb_counted_buffer);
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout);
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout, voxelize_descriptor);
   DescriptorBuilder::Reset();
 
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&mesh_counted_buffer);
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&instance_counted_buffer);
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&aabb_counted_buffer);
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,
                                  mesh_descriptor_layout);
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,

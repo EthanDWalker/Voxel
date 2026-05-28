@@ -8,7 +8,7 @@ StructuredBuffer<Vertex> vertex_arr_arr[];
 [[vk::binding(1, 0)]]
 StructuredBuffer<uint32_t> index_arr_arr[];
 
-[[vk::binding(3, 0)]]
+[[vk::binding(2, 0)]]
 StructuredBuffer<Instance> instance_arr;
 
 struct VertexInfo {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Core/Render/Vulkan/acceleration_structure.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/indirect_buffer.h"
@@ -16,7 +15,7 @@
 #include <mutex>
 
 namespace Core {
-struct Spec {
+struct RenderSpec {
   u32 max_directional_lights = 10;
   u32 max_raycasts = 10;
   u32 max_meshes = 10'000;
@@ -28,7 +27,7 @@ const u32 BEAM_PREPASS_SCALE_EXP = 2;
 const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
 
 struct RenderContext {
-  Spec current_spec;
+  RenderSpec current_spec;
   VulkanSwapchain swapchain;
   VulkanImage<ImageType::Planar> main_image;
   VulkanImage<ImageType::Planar> beam_prepass_image;
@@ -76,8 +75,9 @@ struct RenderContext {
   std::vector<VoxelVolume> clear_volume_cmds;
   std::mutex clear_volume_cmd_mutex;
 
+  VulkanBuffer<BufferType::CountedBuffer, AABB> aabb_counted_buffer = "aabb counted buffer";
+
   VulkanBuffer<BufferType::CountedBuffer, Instance> instance_counted_buffer = "instance counted buffer";
-  VulkanBuffer<BufferType::CountedBuffer, Mesh> mesh_counted_buffer = "mesh counted buffer";
   VulkanDescriptorLayout mesh_descriptor_layout;
   VulkanDescriptor mesh_descriptor;
 
@@ -100,12 +100,12 @@ struct RenderContext {
   std::chrono::time_point<std::chrono::steady_clock> last_frame_time;
   std::chrono::time_point<std::chrono::steady_clock> start_time;
 
-  void Create(const Spec &spec);
+  RenderContext(const RenderSpec &spec);
   void CreatePipelines();
   void RecreatePipelines();
 
   ~RenderContext();
 };
 
-extern RenderContext *render_context;
+extern std::unique_ptr<RenderContext> render_context;
 } // namespace Core

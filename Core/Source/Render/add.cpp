@@ -1,5 +1,4 @@
 #include "Core/Render/add.h"
-#include "Core/Render/Vulkan/acceleration_structure.h"
 #include "Core/Render/Vulkan/buffer.h"
 #include "Core/Render/Vulkan/command_buffer.h"
 #include "Core/Render/Vulkan/context.h"
@@ -94,7 +93,10 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
 
         cmd.BeginRendering({}, nullptr, Vec2u32(1 << (max_depth * 2)), false);
         cmd.BindPipeline(render_context->allocate_pipeline);
-        cmd.BindDescriptors({render_context->voxelize_descriptor, render_context->voxel_tree.descriptor});
+        cmd.BindDescriptors({
+            render_context->voxelize_descriptor,
+            render_context->voxel_tree.descriptor,
+        });
 
         AllocateInfo alloc_info;
         alloc_info.depth = depth;
@@ -102,6 +104,7 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
 
         for (u32 i = 0; i < instance_data_arr.size(); i++) {
           alloc_info.instance_index = i;
+          alloc_info.albedo_index = mesh_arr[instance_data_arr[i].mesh_index].albedo_image_index;
           cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
           cmd.Draw(mesh_arr[instance_data_arr[i].mesh_index].index_count / 3);
           cmd.ClearPushConstants();
@@ -168,18 +171,23 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
         child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(
             *render_context->voxel_tree.leaf_pages[i]);
       }
+      child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(render_context->aabb_counted_buffer);
 
       cmd.BindSubPass(child_mask_pass);
 
       cmd.BeginRendering({}, nullptr, Vec2u32(1 << (max_depth * 2)), false);
       cmd.BindPipeline(render_context->allocate_child_mask_pipeline);
-      cmd.BindDescriptors({render_context->voxelize_descriptor, render_context->voxel_tree.descriptor});
+      cmd.BindDescriptors({
+          render_context->voxelize_descriptor,
+          render_context->voxel_tree.descriptor,
+      });
 
       for (u32 i = 0; i < instance_data_arr.size(); i++) {
         AllocateInfo alloc_info;
         alloc_info.depth = max_depth - 1;
         alloc_info.leaf = true;
         alloc_info.instance_index = i;
+        alloc_info.albedo_index = mesh_arr[instance_data_arr[i].mesh_index].albedo_image_index;
 
         cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
         cmd.Draw(mesh_arr[instance_data_arr[i].mesh_index].index_count / 3);
@@ -213,26 +221,13 @@ void AddObject(const ObjectData &object) {
 
   const u32 max_depth = SparseVoxelTree::MAX_DEPTH;
 
-  VulkanBuffer<BufferType::StructuredBuffer, Mesh> mesh_buffer = "mesh buffer";
-  mesh_buffer.Create(object.mesh_data_arr.size(),
-                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-
-  render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(2, &mesh_buffer);
-
-  VulkanBuffer<BufferType::StagingBuffer> mesh_staging_buffer = "mesh staging buffer";
-  mesh_staging_buffer.Create(mesh_buffer.size);
-
   std::vector<Mesh> mesh_arr;
   mesh_arr.resize(object.mesh_data_arr.size());
 
   for (u32 i = 0; i < mesh_arr.size(); i++) {
     mesh_arr[i].index_count = object.mesh_data_arr[i].index_count;
-    mesh_arr[i].min_bound = object.mesh_data_arr[i].aabb.min;
     mesh_arr[i].albedo_image_index = object.mesh_data_arr[i].material_index;
-    mesh_arr[i].max_bound = object.mesh_data_arr[i].aabb.max;
   }
-
-  memcpy(mesh_staging_buffer.host_address, mesh_arr.data(), mesh_staging_buffer.size);
 
   std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, Vertex>>> vertex_buffer_arr;
   vertex_buffer_arr.reserve(object.mesh_data_arr.size());
@@ -264,7 +259,7 @@ void AddObject(const ObjectData &object) {
     albedo_image_arr[i]->Create(object.material_data_arr[i].albedo_extent, VK_FORMAT_BC1_RGB_UNORM_BLOCK,
                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
-    render_context->voxelize_descriptor.Update<DeviceResourceType::SampledImage>(4, albedo_image_arr[i].get(),
+    render_context->voxelize_descriptor.Update<DeviceResourceType::SampledImage>(3, albedo_image_arr[i].get(),
                                                                                  i);
   }
 
@@ -281,7 +276,7 @@ void AddObject(const ObjectData &object) {
   instance_buffer.Create(object.instance_data_arr.size(),
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-  render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(3, &instance_buffer);
+  render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(2, &instance_buffer);
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     cmd.BeginDebugPass("voxelize info transfer");
@@ -312,10 +307,6 @@ void AddObject(const ObjectData &object) {
         transfer_pass.AddDependency<DeviceResourceType::TransferDst>(*albedo_image_arr[i]);
       }
 
-      transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(mesh_staging_buffer);
-      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(mesh_buffer);
-      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->mesh_counted_buffer);
-
       transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(instance_staging_buffer);
       transfer_pass.AddDependency<DeviceResourceType::TransferDst>(instance_buffer);
       transfer_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->instance_counted_buffer);
@@ -337,9 +328,6 @@ void AddObject(const ObjectData &object) {
         cmd.UploadBufferToImage(*object.material_data_arr[i].compressed_albedo_data_buffer,
                                 *albedo_image_arr[i]);
       }
-
-      cmd.UploadBufferToBuffer(mesh_staging_buffer, mesh_buffer, mesh_buffer.size);
-      render_context->mesh_counted_buffer.Append(cmd, mesh_staging_buffer, object.mesh_data_arr.size());
 
       cmd.UploadBufferToBuffer(instance_staging_buffer, instance_buffer, instance_buffer.size);
       render_context->instance_counted_buffer.Append(cmd, instance_staging_buffer,
@@ -368,7 +356,6 @@ void AddObject(const ObjectData &object) {
         graphic_pass.AddDependency<DeviceResourceType::SampledImage>(*albedo_image_arr[i]);
       }
 
-      graphic_pass.AddDependency<DeviceResourceType::Buffer>(mesh_buffer);
       graphic_pass.AddDependency<DeviceResourceType::Buffer>(instance_buffer);
 
       cmd.BindSubPass(graphic_pass);

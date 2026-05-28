@@ -17,7 +17,13 @@ void Editor::StartUp() {
   camera.Create(Core::render_context->main_image.GetVec2u32());
 
   Core::ObjectData object_data;
+
+#if 0
+  Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/bistro.glb", object_data);
+  Core::WriteObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro", object_data);
+#else
   Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro", object_data);
+#endif
 
   {
     SCOPED_TIMER("mesh voxelize");

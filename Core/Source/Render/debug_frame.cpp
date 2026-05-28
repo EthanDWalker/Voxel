@@ -9,7 +9,6 @@ void DrawDebugAABBs() {
 
   cmd.BeginDebugPass("aabb debug pass");
   VulkanSubPass<SubPassType::Graphic> debug_pass;
-  debug_pass.AddDependency<DeviceResourceType::Buffer>(render_context->mesh_counted_buffer);
   debug_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[resource_index]);
   debug_pass.AddDependency<DeviceResourceType::ColorAttachment>(render_context->swapchain.GetImage());
 
@@ -22,7 +21,7 @@ void DrawDebugAABBs() {
       render_context->mesh_descriptor,
       render_context->camera_descriptor[resource_index],
   });
-  cmd.Draw(render_context->instance_counted_buffer.cpu_append_count);
+  cmd.Draw(render_context->aabb_counted_buffer.max_count);
   cmd.EndRendering();
   cmd.EndDebugPass();
 }

@@ -5,21 +5,18 @@
 #include "Include/voxel_tree.slang"
 
 [[vk::binding(2, 0)]]
-StructuredBuffer<Mesh> mesh_arr;
-
-[[vk::binding(3, 0)]]
 StructuredBuffer<Instance> instance_arr;
 
-[[vk::binding(4, 0)]]
+[[vk::binding(3, 0)]]
 Texture2D<float4> albedo_image[];
 
-[[vk::binding(5, 0)]]
+[[vk::binding(4, 0)]]
 SamplerState albedo_image_sampler;
 
 [shader("fragment")]
 void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
-  const Mesh mesh = mesh_arr[instance_arr[alloc_info.instance_index].mesh_index];
-  const float4 color = albedo_image[mesh.albedo_image_index].SampleLevel(albedo_image_sampler, info.uv, 0.0f);
+  const float4 color =
+      albedo_image[alloc_info.albedo_image_index].SampleLevel(albedo_image_sampler, info.uv, 0.0f);
   if (color.a == 0.0f)
     return;
 
@@ -38,7 +35,7 @@ void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
     if (child_ptr_data.data == SENTINAL)
       break;
 
-    voxel_tree[page_index][page_offset].child_mask.or(uint64_t(1) << local_index);
+    const uint64_t ret = voxel_tree[page_index][page_offset].child_mask.or(uint64_t(1) << local_index);
 
     ptr = child_ptr_data.child_ptr + local_index;
 

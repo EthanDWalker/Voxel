@@ -1,6 +1,6 @@
 #pragma once
 
-static const uint32_t PTR_STACK_SIZE = 5;
+static const uint32_t PTR_STACK_SIZE = 4;
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
 static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
 static const uint32_t SENTINAL = 0xFFFFFFFF;
@@ -12,6 +12,8 @@ enum Axis {
   Y,
   Z,
 };
+
+typedef uint32_t Index;
 
 struct Instance {
   float4 _row_0;
@@ -52,7 +54,7 @@ struct DirectionalLight {
   float3 color;
 };
 
-struct Mesh {
+struct AABB {
   float min_bound_x;
   float min_bound_y;
   float min_bound_z;
@@ -61,15 +63,22 @@ struct Mesh {
   float max_bound_y;
   float max_bound_z;
 
-  uint32_t index_count;
-  uint32_t albedo_image_index;
-
   property float3 min_bound {
     get { return float3(min_bound_x, min_bound_y, min_bound_z); }
+    set {
+      this.min_bound_x = newValue.x;
+      this.min_bound_y = newValue.y;
+      this.min_bound_z = newValue.z;
+    }
   };
 
   property float3 max_bound {
     get { return float3(max_bound_x, max_bound_y, max_bound_z); }
+    set {
+      this.max_bound_x = newValue.x;
+      this.max_bound_y = newValue.y;
+      this.max_bound_z = newValue.z;
+    }
   };
 };
 
