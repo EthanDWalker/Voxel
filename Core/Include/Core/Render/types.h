@@ -11,7 +11,12 @@ using Instance = VkAccelerationStructureInstanceKHR;
 struct alignas(GPU_ALIGNMENT) AllocateInfo {
   u32 depth;
   u32 leaf;
+<<<<<<< Updated upstream
   u32 instance_index;
+=======
+  u32 mesh_index;
+  u32 albedo_index;
+>>>>>>> Stashed changes
 };
 
 struct alignas(GPU_ALIGNMENT) Vertex {
@@ -27,6 +32,7 @@ struct alignas(GPU_ALIGNMENT) DirectionalLight {
   Vec3f32 color;
 };
 
+<<<<<<< Updated upstream
 struct alignas(GPU_ALIGNMENT) VoxelVolume {
   Vec3f32 min;
   u32 _p0;
@@ -53,12 +59,16 @@ struct alignas(GPU_ALIGNMENT) RaycastResult {
 };
 
 struct alignas(GPU_ALIGNMENT) AABB {
+=======
+struct AABB {
+>>>>>>> Stashed changes
   Vec3f32 min;
   u32 _p0;
   Vec3f32 max;
   u32 _p1;
 };
 
+<<<<<<< Updated upstream
 // must fit VkAabbPositionsKHR
 struct alignas(GPU_ALIGNMENT) Mesh {
   Vec3f32 min_bound;
@@ -69,6 +79,10 @@ struct alignas(GPU_ALIGNMENT) Mesh {
 
 struct IndirectLightingRayDispatch {
   Vec3u32 tree_index;
+=======
+struct BranchNode {
+  u64 child_mask;
+>>>>>>> Stashed changes
 };
 
 enum class SamplerFilter : u8 {

@@ -69,15 +69,16 @@ template <>
 struct VulkanAccelerationStructure<AccelerationStructureType::AABB> : BaseVulkanAccelerationStructure {
   using BaseVulkanAccelerationStructure::BaseVulkanAccelerationStructure;
 
-  void Create(const VulkanBuffer<BufferType::CountedBuffer, Mesh> &mesh_buffer) {
+  template<typename AABBType>
+  void Create(const VulkanBuffer<BufferType::CountedBuffer, AABBType> &aabb_buffer) {
 
-    Assert((mesh_buffer.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0,
-           "must have VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT set for buffer {}", mesh_buffer.name);
+    Assert((aabb_buffer.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0,
+           "must have VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT set for buffer {}", aabb_buffer.name);
 
     VkAccelerationStructureGeometryAabbsDataKHR aabbs{};
     aabbs.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
-    aabbs.data.deviceAddress = mesh_buffer.device_address;
-    aabbs.stride = sizeof(Mesh);
+    aabbs.data.deviceAddress = aabb_buffer.device_address;
+    aabbs.stride = sizeof(AABBType);
 
     VkAccelerationStructureGeometryKHR geometry{};
     geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
@@ -86,15 +87,16 @@ struct VulkanAccelerationStructure<AccelerationStructureType::AABB> : BaseVulkan
     geometry.geometry.aabbs = aabbs;
 
     VkAccelerationStructureBuildRangeInfoKHR offset{};
-    offset.primitiveCount = mesh_buffer.cpu_append_count;
+    offset.primitiveCount = aabb_buffer.cpu_append_count;
     offset.primitiveOffset = sizeof(VulkanBuffer<BufferType::CountedBuffer>::Header);
 
     CreateBase(geometry, offset, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR);
   }
 
-  void Recreate(const VulkanBuffer<BufferType::CountedBuffer, Mesh> &mesh_buffer) {
+  template<typename AABBType>
+  void Recreate(const VulkanBuffer<BufferType::CountedBuffer, AABBType> &aabb_buffer) {
     DestroyBase();
-    Create(mesh_buffer);
+    Create(aabb_buffer);
   }
 };
 

@@ -68,26 +68,8 @@ void Frame(Camera &camera) {
         render_context->frame_staging_buffer[resource_index]);
     upload_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->main_image);
     upload_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->camera_buffer[resource_index]);
-    upload_pass.AddDependency<DeviceResourceType::TransferDst>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].set_buffer);
-
-    upload_pass.AddDependency<DeviceResourceType::TransferSrc>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_staging_buffer);
-    upload_pass.AddDependency<DeviceResourceType::TransferDst>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer);
-    upload_pass.AddDependency<DeviceResourceType::TransferDst>(
-        render_context->indirect_light_dispatch_buffer.dispatch_data);
-    upload_pass.AddDependency<DeviceResourceType::TransferDst>(
-        render_context->indirect_light_dispatch_buffer.dispatch_cmd);
-    upload_pass.AddDependency<DeviceResourceType::TransferDst>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].occlusion_data_buffer);
 
     cmd.BindSubPass(upload_pass);
-
-    render_context->indirect_light_dispatch_buffer.dispatch_data.Clear(cmd);
-
-    cmd.FillBuffer(render_context->indirect_light_dispatch_buffer.dispatch_cmd,
-                   render_context->indirect_light_dispatch_buffer.dispatch_cmd.size, 1);
 
     u64 offset = 0;
     memcpy((char *)render_context->frame_staging_buffer[resource_index].host_address + offset, &camera.ubo,
@@ -96,149 +78,28 @@ void Frame(Camera &camera) {
                              render_context->camera_buffer[resource_index], sizeof(Camera::UBO), offset);
     offset += sizeof(Camera::UBO);
 
-    cmd.FillBuffer(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].occlusion_data_buffer,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].occlusion_data_buffer.size, 0);
-
-    DeviceHashSetHeader *last_header =
-        (DeviceHashSetHeader *)render_context->indirect_light_hash_set.swapped_data[resource_index]
-            .header_staging_buffer.host_address;
-
-    if (last_header->insertion_failures != 0) {
-      cmd.FillBuffer(render_context->indirect_light_hash_set.swapped_data[resource_index].set_buffer,
-                     render_context->indirect_light_hash_set.swapped_data[resource_index].set_buffer.size,
-                     DeviceHashSet::EMPTY_KEY);
-      Core::Log("clearing frame index lighting cache (failiures {})", last_header->insertion_failures);
-    }
-    last_header->insertion_failures = 0;
-
-    cmd.UploadBufferToBuffer(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_staging_buffer,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer.size);
-
-    cmd.EndDebugPass();
-  }
-
-  {
-    cmd.BeginDebugPass("beam pass");
-    VulkanSubPass<SubPassType::Compute> beam_pass;
-    beam_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->beam_prepass_image);
-    beam_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[resource_index]);
-    beam_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[last_resource_index]);
-
-    cmd.BindSubPass(beam_pass);
-
-    cmd.BindPipeline(render_context->beam_prepass_pipeline);
-    cmd.BindDescriptors({
-        render_context->image_descriptor,
-        render_context->camera_descriptor[resource_index],
-        render_context->voxel_tree.descriptor,
-    });
-    cmd.Dispatch(Vec3u32(render_context->beam_prepass_image.GetVec2u32() / 8 + 1, 1));
-    cmd.EndDebugPass();
-  }
-
-  {
-    cmd.BeginDebugPass("indirect prepass");
-    VulkanSubPass<SubPassType::Compute> indirect_lighting_prepass;
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->camera_buffer[resource_index]);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->directional_light_buffer);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].set_buffer);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_hash_set.swapped_data[last_resource_index].set_buffer);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_dispatch_buffer.dispatch_data);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_dispatch_buffer.dispatch_cmd);
-    indirect_lighting_prepass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].occlusion_data_buffer);
-
-    cmd.BindSubPass(indirect_lighting_prepass);
-
-    cmd.BindPipeline(render_context->indirect_lighting_prepass_pipeline);
-    cmd.BindDescriptors({
-        render_context->image_descriptor,
-        render_context->camera_descriptor[resource_index],
-        render_context->voxel_tree.descriptor,
-        render_context->light_descriptor,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].descriptor,
-        render_context->indirect_light_dispatch_buffer.descriptor,
-    });
-    cmd.Dispatch(Vec3u32((render_context->main_image.GetVec2u32() >> INDIRECT_LIGHT_SCALE_EXP) / 8 + 1, 1));
-    cmd.EndDebugPass();
-  }
-
-  {
-    cmd.BeginDebugPass("indirect pass");
-    VulkanSubPass<SubPassType::Compute> indirect_lighting_pass;
-    indirect_lighting_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->camera_buffer[resource_index]);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->camera_buffer[last_resource_index]);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->directional_light_buffer);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::RWBuffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].set_buffer);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->indirect_light_hash_set.swapped_data[last_resource_index].set_buffer);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->indirect_light_dispatch_buffer.dispatch_data);
-    indirect_lighting_pass.AddDependency<DeviceResourceType::IndirectDispatchBuffer>(
-        render_context->indirect_light_dispatch_buffer.dispatch_cmd);
-
-    cmd.BindSubPass(indirect_lighting_pass);
-
-    cmd.BindPipeline(render_context->indirect_lighting_pipeline);
-    cmd.BindDescriptors({
-        render_context->image_descriptor,
-        render_context->camera_descriptor[resource_index],
-        render_context->voxel_tree.descriptor,
-        render_context->light_descriptor,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].descriptor,
-        render_context->indirect_light_dispatch_buffer.descriptor,
-    });
-    cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(u32), &render_context->swapchain.frame_number);
-    cmd.DispatchIndirect(render_context->indirect_light_dispatch_buffer.dispatch_cmd);
-    cmd.EndDebugPass();
+    cmd.ClearImage(render_context->main_image);
   }
 
   {
     cmd.BeginDebugPass("main pass");
+
     VulkanSubPass<SubPassType::Compute> main_pass;
-    main_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
     main_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[resource_index]);
-    main_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[last_resource_index]);
+    main_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
     main_pass.AddDependency<DeviceResourceType::Buffer>(render_context->directional_light_buffer);
-    main_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer);
-    main_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].set_buffer);
-    main_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->indirect_light_hash_set.swapped_data[last_resource_index].set_buffer);
-    main_pass.AddDependency<DeviceResourceType::Buffer>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].occlusion_data_buffer);
 
     cmd.BindSubPass(main_pass);
 
     cmd.BindPipeline(render_context->main_pipeline);
     cmd.BindDescriptors({
         render_context->image_descriptor,
+        render_context->mesh_descriptor,
         render_context->camera_descriptor[resource_index],
-        render_context->voxel_tree.descriptor,
         render_context->light_descriptor,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].descriptor,
     });
-    cmd.Dispatch(Vec3u32(render_context->main_image.GetVec2u32() / 8 + 1, 1));
+    cmd.Dispatch(render_context->main_image.GetVec3u32() / 8 + 1);
+
     cmd.EndDebugPass();
   }
 
@@ -248,19 +109,9 @@ void Frame(Camera &camera) {
     transer_pass.AddDependency<DeviceResourceType::TransferSrc>(render_context->main_image);
     transer_pass.AddDependency<DeviceResourceType::TransferDst>(render_context->swapchain.GetImage());
 
-    transer_pass.AddDependency<DeviceResourceType::TransferSrc>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer);
-    transer_pass.AddDependency<DeviceResourceType::TransferDst>(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_staging_buffer);
-
     cmd.BindSubPass(transer_pass);
 
     cmd.CopyImageToImage(render_context->main_image, render_context->swapchain.GetImage());
-
-    cmd.UploadBufferToBuffer(
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_buffer,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_staging_buffer,
-        render_context->indirect_light_hash_set.swapped_data[resource_index].header_staging_buffer.size);
 
     cmd.EndDebugPass();
   }
@@ -274,22 +125,5 @@ void Resize(Vec2u32 extent) {
   render_context->main_image.Recreate(extent, render_context->main_image.format,
                                       render_context->main_image.usage);
   render_context->image_descriptor.Update<DeviceResourceType::RWStorageImage>(0, &render_context->main_image);
-
-  render_context->indirect_light_hash_set.Recreate(
-      ((render_context->main_image.height * render_context->main_image.width) >> INDIRECT_LIGHT_SCALE_EXP) *
-          render_context->current_spec.max_cached_indirect_lighting_per_pixel,
-      VK_SHADER_STAGE_COMPUTE_BIT);
-  render_context->indirect_light_dispatch_buffer.Recreate(
-      ((render_context->main_image.height * render_context->main_image.width) >> INDIRECT_LIGHT_SCALE_EXP) *
-          render_context->current_spec.max_average_rays_per_pixel,
-      VK_SHADER_STAGE_COMPUTE_BIT);
-
-  render_context->beam_prepass_image.Recreate(extent >> BEAM_PREPASS_SCALE_EXP,
-                                              render_context->beam_prepass_image.format,
-                                              render_context->beam_prepass_image.usage, /*referenced=*/true);
-  render_context->image_descriptor.Update<DeviceResourceType::RWStorageImage>(
-      1, &render_context->beam_prepass_image);
-
-  Core::Log("{}", extent.String());
 }
 } // namespace Core

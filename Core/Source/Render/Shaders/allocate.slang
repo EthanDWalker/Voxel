@@ -1,43 +1,115 @@
 #include "Include/common.slang"
-#define VOXEL_TREE_ATOMIC
-#define VOXEL_TREE_READ_WRITE
-#define VOXEL_TREE_SET_BINDING 1
-#include "Include/voxel_tree.slang"
 
+<<<<<<< Updated upstream
 void Allocate(const uint32_t3 index, const uint32_t depth, const bool leaf) {
   uint32_t ptr = GetLocalIndex(index, 0);
+=======
+struct BranchNode {
+  Atomic<uint64_t> child_mask;
+};
 
-  for (uint32_t i = 1; i < depth; i++) {
-    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+[[vk::binding(0, 0)]]
+RWStructuredBuffer<BranchNode> mesh_node_brick_arr[];
+>>>>>>> Stashed changes
 
-    const uint32_t local_index = GetLocalIndex(index, i);
+[[vk::binding(1, 0)]]
+RWCountedBuffer<AABB> voxel_aabb_arr_arr[];
 
-    const ChildPtrData child_ptr_data =
-        ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
+[[vk::binding(2, 0)]]
+RWStructuredBuffer<Vertex> vertex_arr_arr[];
 
-    if (child_ptr_data.is_leaf) {
-      break;
-    } else {
-      ptr = child_ptr_data.child_ptr + local_index;
-    }
-  }
+[[vk::binding(3, 0)]]
+RWStructuredBuffer<Index> index_arr_arr[];
 
-  const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-  const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+[[vk::binding(4, 0)]]
+RWStructuredBuffer<AABB> mesh_aabb_arr;
 
-  if (voxel_tree[page_index][page_offset].child_ptr_data.compareExchange(SENTINAL, 0) == SENTINAL) {
-    if (leaf) {
-      voxel_tree[page_index][page_offset].child_ptr_data =
-          voxel_tree_header.AllocateLeafVoxels(64) | IS_LEAF_BIT;
-    } else {
-      voxel_tree[page_index][page_offset].child_ptr_data = voxel_tree_header.AllocateBranchVoxels(64);
-    }
-  }
+struct AllocateInfo {
+  uint32_t depth;
+  uint32_t leaf;
+  uint32_t mesh_index;
+  uint32_t albedo_index;
+};
+
+struct TriangleInfo {
+  uint32_t triangle_id;
+};
+
+[shader("vertex")]
+TriangleInfo VMain(const uint32_t triangle_id: SV_VertexID, const uniform AllocateInfo alloc_info) {
+  TriangleInfo info;
+  info.triangle_id = triangle_id;
+  return info;
 }
 
+struct FragmentInfo {
+  float4 position : SV_Position;
+  float3 model_position : varying;
+};
+
+[shader("geometry")]
+[maxvertexcount(3)]
+void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<FragmentInfo> output_stream,
+           const uniform AllocateInfo alloc_info) {
+  const uint32_t mesh_id = alloc_info.mesh_index;
+
+  const Vertex input[3] = {
+    vertex_arr_arr[mesh_id][index_arr_arr[mesh_id][triangle_info[0].triangle_id * 3 + 0]],
+    vertex_arr_arr[mesh_id][index_arr_arr[mesh_id][triangle_info[0].triangle_id * 3 + 1]],
+    vertex_arr_arr[mesh_id][index_arr_arr[mesh_id][triangle_info[0].triangle_id * 3 + 2]],
+  };
+
+  const float3 normal = cross(input[1].position - input[0].position, input[2].position - input[0].position);
+  const float3 abs_normal = abs(normal);
+
+  const Axis projection_axis = (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) ? Axis::X
+                               : (abs_normal.y > abs_normal.z)                              ? Axis::Y
+                                                                                            : Axis::Z;
+
+  const float3 aabb_size = mesh_aabb_arr[mesh_id].max_bound - mesh_aabb_arr[mesh_id].min_bound;
+  const float3 aabb_center = aabb_size / 2.0f;
+
+  for (uint32_t i = 0; i < 3; i++) {
+    FragmentInfo frag_info;
+    frag_info.model_position = input[i].position;
+
+    const float3 pos = (input[i].position / aabb_size);
+    frag_info.position = float4((projection_axis == Axis::X)   ? pos.yz
+                                : (projection_axis == Axis::Y) ? pos.xz
+                                                               : pos.xy,
+                                1.0f, 1.0f);
+    output_stream.Append(frag_info);
+  }
+  output_stream.RestartStrip();
+}
+
+static const float VOXEL_AABB_SIZE = 0.5f;
+
 [shader("fragment")]
-void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
-  const uint32_t3 tree_index = GetTreeIndex(info.world_position);
-  Allocate(tree_index, alloc_info.depth, alloc_info.leaf == 1);
+void FMain(const FragmentInfo info, const uniform AllocateInfo alloc_info) {
+  const AABB mesh_aabb = mesh_aabb_arr[alloc_info.mesh_index];
+  const uint32_t3 voxel_aabb_index =
+      uint32_t3((info.model_position - mesh_aabb_arr[alloc_info.mesh_index].min_bound) / VOXEL_AABB_SIZE);
+  uint32_t3 voxel_aabb_max_index = uint32_t3(
+      ceil((mesh_aabb_arr[alloc_info.mesh_index].max_bound - mesh_aabb_arr[alloc_info.mesh_index].min_bound) /
+           VOXEL_AABB_SIZE));
+  voxel_aabb_max_index = select(voxel_aabb_max_index == 0, 1, voxel_aabb_max_index);
+
+  AABB voxel_aabb;
+  voxel_aabb.min_bound = mesh_aabb.min_bound + voxel_aabb_index * VOXEL_AABB_SIZE;
+  voxel_aabb.max_bound = voxel_aabb.min_bound + VOXEL_AABB_SIZE;
+
+  const uint32_t arr_index = voxel_aabb_index.x + (voxel_aabb_index.y * voxel_aabb_max_index.x) +
+                             (voxel_aabb_index.z * voxel_aabb_max_index.x * voxel_aabb_max_index.y);
+
+  const uint32_t3 local_index =
+      uint32_t3((info.model_position - voxel_aabb.min_bound) / (VOXEL_AABB_SIZE / 4.0f));
+  const uint32_t local_index_index = SumComponents(local_index << uint32_t3(0, 2, 4));
+
+  const uint64_t ret =
+      mesh_node_brick_arr[alloc_info.mesh_index][arr_index].child_mask.or(uint64_t(1) << local_index_index);
+
+  if (ret == 0) {
+    voxel_aabb_arr_arr[alloc_info.mesh_index].Append(voxel_aabb);
+  }
 }

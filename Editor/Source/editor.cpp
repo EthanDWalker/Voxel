@@ -1,8 +1,6 @@
 #include "editor.h"
 #include "Core/Render/add.h"
-#include "Core/Render/commands.h"
 #include "Core/Render/context.h"
-#include "Core/Render/debug_frame.h"
 #include "Core/Render/frame.h"
 #include "Core/Render/types.h"
 #include "Core/Util/Parse/object.h"
@@ -17,7 +15,17 @@ void Editor::StartUp() {
   camera.Create(Core::render_context->main_image.GetVec2u32());
 
   Core::ObjectData object_data;
+<<<<<<< Updated upstream
   Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro", object_data);
+=======
+
+#if 1
+  Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/DragonAttenuation.glb", object_data);
+  Core::WriteObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/DragonAttenuation", object_data);
+#else
+  Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Sponza", object_data);
+#endif
+>>>>>>> Stashed changes
 
   {
     SCOPED_TIMER("mesh voxelize");
@@ -29,14 +37,6 @@ void Editor::StartUp() {
       .intesity = 8.0f,
       .color = Vec3f32(1.0f),
   };
-
-  Core::SparseVoxelTree &tree = Core::render_context->voxel_tree;
-
-  Core::SparseVoxelTree::TreeHeader *tree_header =
-      (Core::SparseVoxelTree::TreeHeader *)tree.tree_header_host_buffer.host_address;
-
-  Core::Log("branch voxel count {} (pages {})", tree_header->branch_count, tree.branch_pages.size());
-  Core::Log("leaf count {} (pages {})", tree_header->leaf_count, tree.leaf_pages.size());
 
   Core::AddDirectionalLight(dir_light);
 }
@@ -78,9 +78,6 @@ void Editor::Run() {
 
     Core::Frame(camera);
 
-    if (Core::InputContext::GetHeld(Core::Input::B))
-      Core::DrawDebugAABBs();
-
     Core::EndFrame(resize);
 
     if (resize) {
@@ -93,34 +90,6 @@ void Editor::Run() {
 
     if (Core::InputContext::GetPressed(Core::Input::ESCAPE))
       Core::Window::SetShouldClose(true);
-
-    if (Core::InputContext::GetHeld(Core::Input::F))
-      camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND) / 10.0f;
-    else
-      camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
-
-    if (Core::InputContext::GetPressed(Core::Input::MOUSE_LEFT)) {
-      Core::Raycast query{};
-      query.origin = camera.position;
-
-      const Vec2f32 mouse_pos = Vec2f32::From(Core::InputContext::mouse_pos);
-
-      const Vec4f32 view =
-          PerspectiveReverseZInverse(camera.z_near, 1000.0f, camera.fov_y, camera.aspect_ratio) *
-          Vec4f32(mouse_pos, 1.0f, 1.0f);
-
-      query.dir = Vec4f32::DownCast<Vec3f32>(
-          LookAtInverse(camera.position, camera.position + camera.front, camera.up) *
-          Vec4f32(Normalize(Vec4f32::DownCast<Vec3f32>(view)), 0.0f));
-
-      Core::QueueRaycastCmd(query, [&](const Core::RaycastResult &result) {
-        Core::QueueClearVolumeCmd(
-            Core::VoxelVolume{.min = result.hit_position - 50.0f, .max = result.hit_position + 50.0f});
-      });
-    }
-
-    Core::FlushRaycastCmds();
-    Core::FlushClearVolumeCmds();
 
     if (Core::InputContext::GetPressed(Core::Input::T))
       Core::Log("camera position: {}", camera.position.String());

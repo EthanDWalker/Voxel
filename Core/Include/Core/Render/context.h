@@ -3,17 +3,12 @@
 #include "Core/Render/Vulkan/acceleration_structure.h"
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
-#include "Core/Render/Vulkan/indirect_buffer.h"
 #include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/Vulkan/pipeline.h"
 #include "Core/Render/Vulkan/swapchain.h"
 #include "Core/Render/camera.h"
-#include "Core/Render/device_hash_set.h"
 #include "Core/Render/types.h"
-#include "sparse_voxel_tree.h"
 #include <chrono>
-#include <functional>
-#include <mutex>
 
 namespace Core {
 struct Spec {
@@ -31,7 +26,6 @@ struct RenderContext {
   Spec current_spec;
   VulkanSwapchain swapchain;
   VulkanImage<ImageType::Planar> main_image;
-  VulkanImage<ImageType::Planar> beam_prepass_image;
 
   std::array<VulkanBuffer<BufferType::StagingBuffer>, VulkanSwapchain::FRAME_OVERLAP> frame_staging_buffer = {
       "frame staging buffer 0",
@@ -47,14 +41,8 @@ struct RenderContext {
   };
 
   VulkanPipeline<PipelineType::Compute> main_pipeline;
-  VulkanPipeline<PipelineType::Compute> beam_prepass_pipeline;
-  VulkanPipeline<PipelineType::Compute> clear_volume_pipeline;
-  VulkanPipeline<PipelineType::Compute> indirect_lighting_prepass_pipeline;
-  VulkanPipeline<PipelineType::Compute> indirect_lighting_pipeline;
 
   VulkanPipeline<PipelineType::Graphic> allocate_pipeline;
-  VulkanPipeline<PipelineType::Graphic> allocate_child_mask_pipeline;
-  VulkanPipeline<PipelineType::Graphic> debug_aabb_pipeline;
 
   VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
@@ -66,6 +54,7 @@ struct RenderContext {
   VulkanDescriptor light_descriptor;
   VulkanBuffer<BufferType::CountedBuffer, DirectionalLight> directional_light_buffer =
       "directional light buffer";
+<<<<<<< Updated upstream
   u32 directional_light_count;
 
   SparseVoxelTree voxel_tree;
@@ -78,24 +67,21 @@ struct RenderContext {
 
   VulkanBuffer<BufferType::CountedBuffer, Instance> instance_counted_buffer = "instance counted buffer";
   VulkanBuffer<BufferType::CountedBuffer, Mesh> mesh_counted_buffer = "mesh counted buffer";
+=======
+
+  VulkanBuffer<BufferType::CountedBuffer, Instance> instance_counted_buffer = "instance counted buffer";
+  VulkanAccelerationStructure<AccelerationStructureType::TopLevel> top_level_acceleration_structure;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>> mesh_node_brick_arr;
+  std::vector<std::unique_ptr<VulkanAccelerationStructure<AccelerationStructureType::AABB>>>
+      bottom_level_acceleration_structure_arr;
+
+>>>>>>> Stashed changes
   VulkanDescriptorLayout mesh_descriptor_layout;
   VulkanDescriptor mesh_descriptor;
 
   VulkanDescriptorLayout voxelize_descriptor_layout;
   VulkanDescriptor voxelize_descriptor;
   VulkanSampler albedo_sampler;
-
-  VulkanBuffer<BufferType::StagingBuffer> raycast_staging_buffer = "raycast staging buffer";
-  VulkanBuffer<BufferType::StructuredBuffer, Raycast> raycast_cmds_buffer = "raycast cmd buffer";
-  VulkanBuffer<BufferType::StructuredBuffer, RaycastResult> raycast_results_buffer = "raycast result buffer";
-
-  VulkanDescriptorLayout raycast_descriptor_layout;
-  VulkanDescriptor raycast_descriptor;
-
-  std::vector<Raycast> raycast_cmds;
-  std::vector<std::function<void(RaycastResult)>> raycast_cmd_callbacks;
-  std::mutex raycast_cmd_mutex;
-  VulkanPipeline<PipelineType::Compute> raycast_cmd_pipeline;
 
   std::chrono::time_point<std::chrono::steady_clock> last_frame_time;
   std::chrono::time_point<std::chrono::steady_clock> start_time;

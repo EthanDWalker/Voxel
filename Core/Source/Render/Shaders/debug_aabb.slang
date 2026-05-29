@@ -1,12 +1,15 @@
 #include "Include/camera.slang"
 #include "Include/common.slang"
 
+<<<<<<< Updated upstream
 [[vk::binding(0, 0)]]
 CountedBuffer<Mesh> mesh_arr;
 
 [[vk::binding(1, 0)]]
 CountedBuffer<Instance> instance_arr;
 
+=======
+>>>>>>> Stashed changes
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
 

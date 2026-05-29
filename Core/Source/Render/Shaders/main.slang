@@ -1,16 +1,20 @@
-#include "Include/common.slang"
-#define VOXEL_TREE_SET_BINDING 2
 #include "Include/camera.slang"
-#include "Include/voxel_tree.slang"
-#define HASH_SET_SET_BINDING 4
-#include "Include/hash_set.slang"
+#include "Include/common.slang"
 
 [[vk::binding(0, 0)]]
 RWTexture2D<float4> image;
-[[vk::binding(1, 0)]]
-RWTexture2D<float> beam_image;
 
 [[vk::binding(0, 1)]]
+ConstantBuffer<RaytracingAccelerationStructure> acceleration_structure;
+
+struct BranchNode {
+  uint64_t child_mask;
+};
+
+[[vk::binding(1, 1)]]
+StructuredBuffer<BranchNode> mesh_branch_node_arr;
+
+[[vk::binding(0, 2)]]
 ConstantBuffer<Camera> camera;
 
 [[vk::binding(0, 3)]]
@@ -36,54 +40,27 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
       mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
           PerspectiveReverseZInverse(1.0f, 2.0f, camera.fov_y, camera.aspect_ratio));
 
-  const float3 ray_origin = camera.position;
   const float3 ray_dir = GetPixelRayDir(dispatch_id, image_size, inv_view_proj);
 
-  const float t = SampleBeamImage(dispatch_id, beam_image);
+  RayDesc ray;
+  ray.TMin = 0.001f;
+  ray.TMax = 1e6f;
+  ray.Origin = camera.position;
+  ray.Direction = ray_dir;
 
-  RaycastResult res;
-  Raycast(ray_origin + t * ray_dir, ray_dir, res);
+  RayQuery ray_query;
 
-  if (res.hit) {
-    float3 acc = 0.0f;
+  ray_query.TraceRayInline(acceleration_structure, RAY_FLAG_NONE, 0xFF, ray);
 
-    {
-      const float3 L = -directional_light_arr[0].direction;
-      const float light_impact = max(dot(L, res.hit_normal), 0.0f);
-      float shadow_impact;
-
-      bool in_set;
-      const IndirectLightValue shadow_value = hash_set.GetId(res.leaf_ptr, in_set);
-      if (in_set && shadow_value.occlusion_data != 0) {
-        shadow_impact = float(shadow_value.in_shadow);
-      } else {
-        RaycastResult shadow_res;
-        const float3 shadow_ray_origin = StepTreeRaySingle(
-            GetWorldPositionCenter(res.hit_tree_index, res.hit_level), res.hit_normal, res.hit_level);
-        Raycast(shadow_ray_origin, L, shadow_res);
-        shadow_impact = float(shadow_res.hit);
-      }
-
-      shadow_impact = max(1.0f - shadow_impact, 0.0f);
-
-      acc += res.hit_color.rgb * light_impact * shadow_impact;
+  while (ray_query.Proceed()) {
+    if (ray_query.CandidateType() == CANDIDATE_PROCEDURAL_PRIMITIVE) {
+      if (ray_query.CandidateInstanceID() != 0)
+        ray_query.CommitProceduralPrimitiveHit(0.0f);
     }
+  }
 
-    {
-      RaycastResult indirect_light_res;
-      const float3 indirect_light_dir = GetPixelRayDir(
-          dispatch_id >> INDIRECT_PREPASS_SCALE_EXP, image_size >> INDIRECT_PREPASS_SCALE_EXP, inv_view_proj);
-      const float indirect_t = SampleBeamImage(
-          (dispatch_id >> INDIRECT_PREPASS_SCALE_EXP) << INDIRECT_PREPASS_SCALE_EXP, beam_image);
-      Raycast(ray_origin + indirect_t * indirect_light_dir, indirect_light_dir, indirect_light_res);
-
-      bool in_set;
-      const IndirectLightValue indirect_value = hash_set.GetId(indirect_light_res.leaf_ptr, in_set);
-
-      acc += res.hit_color.rgb * indirect_value.indirect_light * directional_light_arr[0].intensity;
-    }
-
-    image.Store(dispatch_id, float4(acc, 1.0f));
+  if (ray_query.CommittedStatus() == COMMITTED_PROCEDURAL_PRIMITIVE_HIT) {
+    image.Store(dispatch_id, float4(float3(0.0f), 1.0f));
   } else {
     image.Store(dispatch_id, float4(SampleEnvironmentColor(ray_dir, directional_light_arr[0]), 1.0f));
   }

@@ -15,6 +15,7 @@ void BaseVulkanBuffer::DestroyBase() {
 void BaseVulkanBuffer::CreateAlignedBase(const u64 size, const VkBufferUsageFlags usage, const u64 alignment,
                                          const bool host) {
   ZoneScoped;
+  Assert(size != 0, "trying to create buffer {} with size 0", name);
   this->usage = usage;
   this->size = size;
 
@@ -47,6 +48,7 @@ void BaseVulkanBuffer::CreateAlignedBase(const u64 size, const VkBufferUsageFlag
 
 void BaseVulkanBuffer::CreateBase(const u64 size, const VkBufferUsageFlags usage, const bool host) {
   ZoneScoped;
+  Assert(size != 0, "trying to create buffer {} with size 0", name);
   this->usage = usage;
   this->size = size;
 

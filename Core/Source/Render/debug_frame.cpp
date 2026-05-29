@@ -1,6 +1,6 @@
 #include "Core/Render/debug_frame.h"
-#include "Core/Render/context.h"
 
+<<<<<<< Updated upstream
 namespace Core {
 void DrawDebugAABBs() {
   VulkanCommandBuffer &cmd = render_context->swapchain.GetActiveCommandBuffer();
@@ -27,3 +27,6 @@ void DrawDebugAABBs() {
   cmd.EndDebugPass();
 }
 } // namespace Core
+=======
+namespace Core {} // namespace Core
+>>>>>>> Stashed changes
