@@ -52,7 +52,9 @@ struct DirectionalLight {
   float3 color;
 };
 
-struct Mesh {
+typedef uint32_t Index;
+
+struct AABB {
   float min_bound_x;
   float min_bound_y;
   float min_bound_z;
@@ -61,15 +63,22 @@ struct Mesh {
   float max_bound_y;
   float max_bound_z;
 
-  uint32_t index_count;
-  uint32_t albedo_image_index;
-
   property float3 min_bound {
     get { return float3(min_bound_x, min_bound_y, min_bound_z); }
+    set {
+      min_bound_x = newValue.x;
+      min_bound_y = newValue.y;
+      min_bound_z = newValue.z;
+    }
   };
 
   property float3 max_bound {
     get { return float3(max_bound_x, max_bound_y, max_bound_z); }
+    set {
+      max_bound_x = newValue.x;
+      max_bound_y = newValue.y;
+      max_bound_z = newValue.z;
+    }
   };
 };
 

@@ -15,9 +15,6 @@ void Editor::StartUp() {
   camera.Create(Core::render_context->main_image.GetVec2u32());
 
   Core::ObjectData object_data;
-<<<<<<< Updated upstream
-  Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro", object_data);
-=======
 
 #if 1
   Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/DragonAttenuation.glb", object_data);
@@ -25,7 +22,6 @@ void Editor::StartUp() {
 #else
   Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Sponza", object_data);
 #endif
->>>>>>> Stashed changes
 
   {
     SCOPED_TIMER("mesh voxelize");

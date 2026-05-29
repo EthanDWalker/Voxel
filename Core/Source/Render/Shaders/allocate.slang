@@ -1,16 +1,11 @@
 #include "Include/common.slang"
 
-<<<<<<< Updated upstream
-void Allocate(const uint32_t3 index, const uint32_t depth, const bool leaf) {
-  uint32_t ptr = GetLocalIndex(index, 0);
-=======
 struct BranchNode {
   Atomic<uint64_t> child_mask;
 };
 
 [[vk::binding(0, 0)]]
 RWStructuredBuffer<BranchNode> mesh_node_brick_arr[];
->>>>>>> Stashed changes
 
 [[vk::binding(1, 0)]]
 RWCountedBuffer<AABB> voxel_aabb_arr_arr[];

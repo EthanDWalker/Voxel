@@ -10,7 +10,7 @@
 #include <chrono>
 
 namespace Core {
-RenderContext *render_context = nullptr;
+std::unique_ptr<RenderContext> render_context;
 
 void RenderContext::RecreatePipelines() {
   ZoneScoped;
@@ -45,7 +45,7 @@ void RenderContext::CreatePipelines() {
   }
 }
 
-void RenderContext::Create(const Spec &spec) {
+RenderContext::RenderContext(const RenderSpec &spec) {
   ZoneScoped;
 
   start_time = std::chrono::high_resolution_clock::now();
@@ -82,11 +82,6 @@ void RenderContext::Create(const Spec &spec) {
     DescriptorBuilder::Reset();
   }
 
-  mesh_counted_buffer.Create(
-      spec.max_meshes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                           VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR);
-
   instance_counted_buffer.Create(
       spec.max_meshes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -106,45 +101,21 @@ void RenderContext::Create(const Spec &spec) {
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_COMPUTE_BIT, light_descriptor_layout, light_descriptor);
   DescriptorBuilder::Reset();
 
-<<<<<<< Updated upstream
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&raycast_cmds_buffer);
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&raycast_results_buffer);
-  DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_COMPUTE_BIT, raycast_descriptor_layout);
-  DescriptorBuilder::BuildSet(VK_SHADER_STAGE_COMPUTE_BIT, raycast_descriptor_layout, raycast_descriptor);
-  DescriptorBuilder::Reset();
-
-  albedo_sampler.Create(SamplerFilter::Linear, SamplerFilter::Linear);
-
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // vertex
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // index
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);                        // meshes
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);                        // instances
-=======
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // voxelize info
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // voxel aabb
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // vertex
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // index
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // mesh aabb
->>>>>>> Stashed changes
   DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr, spec.max_meshes); // albedo
   DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&albedo_sampler);               // sampler
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout);
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout, voxelize_descriptor);
   DescriptorBuilder::Reset();
 
-<<<<<<< Updated upstream
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&mesh_counted_buffer);
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&instance_counted_buffer);
-  DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,
-                                 mesh_descriptor_layout);
-  DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT,
-                              mesh_descriptor_layout, mesh_descriptor);
-=======
   DescriptorBuilder::Bind<DeviceResourceType::AccelerationStructure>(&top_level_acceleration_structure);
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_COMPUTE_BIT, mesh_descriptor_layout);
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_COMPUTE_BIT, mesh_descriptor_layout, mesh_descriptor);
->>>>>>> Stashed changes
   DescriptorBuilder::Reset();
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {

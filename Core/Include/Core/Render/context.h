@@ -11,7 +11,7 @@
 #include <chrono>
 
 namespace Core {
-struct Spec {
+struct RenderSpec {
   u32 max_directional_lights = 10;
   u32 max_raycasts = 10;
   u32 max_meshes = 10'000;
@@ -23,7 +23,7 @@ const u32 BEAM_PREPASS_SCALE_EXP = 2;
 const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
 
 struct RenderContext {
-  Spec current_spec;
+  RenderSpec current_spec;
   VulkanSwapchain swapchain;
   VulkanImage<ImageType::Planar> main_image;
 
@@ -54,20 +54,6 @@ struct RenderContext {
   VulkanDescriptor light_descriptor;
   VulkanBuffer<BufferType::CountedBuffer, DirectionalLight> directional_light_buffer =
       "directional light buffer";
-<<<<<<< Updated upstream
-  u32 directional_light_count;
-
-  SparseVoxelTree voxel_tree;
-
-  DeviceHashSet indirect_light_hash_set;
-  IndirectDispatchBuffer<PipelineType::Compute, IndirectLightingRayDispatch> indirect_light_dispatch_buffer;
-
-  std::vector<VoxelVolume> clear_volume_cmds;
-  std::mutex clear_volume_cmd_mutex;
-
-  VulkanBuffer<BufferType::CountedBuffer, Instance> instance_counted_buffer = "instance counted buffer";
-  VulkanBuffer<BufferType::CountedBuffer, Mesh> mesh_counted_buffer = "mesh counted buffer";
-=======
 
   VulkanBuffer<BufferType::CountedBuffer, Instance> instance_counted_buffer = "instance counted buffer";
   VulkanAccelerationStructure<AccelerationStructureType::TopLevel> top_level_acceleration_structure;
@@ -75,7 +61,6 @@ struct RenderContext {
   std::vector<std::unique_ptr<VulkanAccelerationStructure<AccelerationStructureType::AABB>>>
       bottom_level_acceleration_structure_arr;
 
->>>>>>> Stashed changes
   VulkanDescriptorLayout mesh_descriptor_layout;
   VulkanDescriptor mesh_descriptor;
 
@@ -86,12 +71,12 @@ struct RenderContext {
   std::chrono::time_point<std::chrono::steady_clock> last_frame_time;
   std::chrono::time_point<std::chrono::steady_clock> start_time;
 
-  void Create(const Spec &spec);
+  RenderContext(const RenderSpec &spec);
   void CreatePipelines();
   void RecreatePipelines();
 
   ~RenderContext();
 };
 
-extern RenderContext *render_context;
+extern std::unique_ptr<RenderContext> render_context;
 } // namespace Core

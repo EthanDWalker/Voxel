@@ -1,4 +1,5 @@
 #include "Core/Render/Vulkan/context.h"
+#include "Core/Render/context.h"
 #include "Core/Util/context.h"
 #include "Core/Util/thread_pool.h"
 #include "Core/input.h"
@@ -24,11 +25,13 @@ void StartUp() {
   InputContext::StartUp();
 
   util_context = std::make_unique<UtilContext>();
+  render_context = std::make_unique<RenderContext>(Core::RenderSpec());
 }
 
 void ShutDown() {
   ZoneScoped;
   util_context.reset();
+  render_context.reset();
 
   VulkanContext::ShutDown();
 
