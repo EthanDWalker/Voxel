@@ -6,8 +6,6 @@
 #include "Core/Render/Vulkan/swapchain.h"
 #include "Core/Render/camera.h"
 #include "Core/Render/context.h"
-#include "Core/Render/device_hash_set.h"
-#include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
 #include "Core/Util/log.h"
 #include "Core/window.h"
@@ -79,6 +77,29 @@ void Frame(Camera &camera) {
     offset += sizeof(Camera::UBO);
 
     cmd.ClearImage(render_context->main_image);
+
+    cmd.EndDebugPass();
+  }
+
+  {
+    cmd.BeginDebugPass("beam pass");
+
+    VulkanSubPass<SubPassType::Compute> beam_pass;
+    beam_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->beam_image);
+    beam_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[resource_index]);
+
+    cmd.BindSubPass(beam_pass);
+
+    cmd.BindPipeline(render_context->beam_pipeline);
+    cmd.BindDescriptors({
+        render_context->image_descriptor,
+        render_context->mesh_descriptor,
+        render_context->camera_descriptor[resource_index],
+        render_context->voxel_descriptor,
+    });
+    cmd.Dispatch(render_context->beam_image.GetVec3u32() / 8 + 1);
+
+    cmd.EndDebugPass();
   }
 
   {
@@ -87,6 +108,7 @@ void Frame(Camera &camera) {
     VulkanSubPass<SubPassType::Compute> main_pass;
     main_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[resource_index]);
     main_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
+    main_pass.AddDependency<DeviceResourceType::StorageImage>(render_context->beam_image);
     main_pass.AddDependency<DeviceResourceType::Buffer>(render_context->directional_light_buffer);
 
     cmd.BindSubPass(main_pass);
@@ -97,6 +119,7 @@ void Frame(Camera &camera) {
         render_context->mesh_descriptor,
         render_context->camera_descriptor[resource_index],
         render_context->light_descriptor,
+        render_context->voxel_descriptor,
     });
     cmd.Dispatch(render_context->main_image.GetVec3u32() / 8 + 1);
 
@@ -125,5 +148,8 @@ void Resize(Vec2u32 extent) {
   render_context->main_image.Recreate(extent, render_context->main_image.format,
                                       render_context->main_image.usage);
   render_context->image_descriptor.Update<DeviceResourceType::RWStorageImage>(0, &render_context->main_image);
+  render_context->beam_image.Recreate(extent >> BEAM_PREPASS_SCALE_EXP, render_context->beam_image.format,
+                                      render_context->beam_image.usage);
+  render_context->image_descriptor.Update<DeviceResourceType::RWStorageImage>(1, &render_context->beam_image);
 }
 } // namespace Core

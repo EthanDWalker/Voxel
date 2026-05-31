@@ -1,15 +1,12 @@
 #include "Include/camera.slang"
 #include "Include/common.slang"
 
-<<<<<<< Updated upstream
-[[vk::binding(0, 0)]]
-CountedBuffer<Mesh> mesh_arr;
+[[vk::binding(2, 0)]]
+CountedBuffer<AABB> mesh_voxel_aabb_arr_arr[];
 
-[[vk::binding(1, 0)]]
+[[vk::binding(4, 0)]]
 CountedBuffer<Instance> instance_arr;
 
-=======
->>>>>>> Stashed changes
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
 
@@ -18,19 +15,37 @@ struct FragmentInfo {
   float4 color : varying;
 };
 
+struct GeometryInfo {
+  uint32_t instance_index;
+  uint32_t aabb_index;
+};
+
 [shader("vertex")]
-uint32_t VMain(const uint32_t instance_index: SV_VertexID) { return instance_index; }
+GeometryInfo VMain(const uint32_t aabb_index: SV_VertexID, const uint32_t instance_index: SV_InstanceID) {
+  GeometryInfo info;
+  info.instance_index = instance_index;
+  info.aabb_index = aabb_index;
+  return info;
+}
 
 [shader("geometry")]
 [maxvertexcount(24)]
-void GMain(point uint32_t point_info[1], inout LineStream<FragmentInfo> output_stream) {
+void GMain(point GeometryInfo point_info[1], inout LineStream<FragmentInfo> output_stream) {
+  const uint32_t instance_index = point_info[0].instance_index;
+  const uint32_t aabb_index = point_info[0].aabb_index;
+  const Instance instance = instance_arr[instance_index];
+  const uint32_t mesh_index = instance.mesh_index;
+
+  if (aabb_index >= mesh_voxel_aabb_arr_arr[mesh_index].count) {
+    return;
+  }
+
   const float4x4 camera_view_proj = mul(camera.projection, camera.view);
 
-  const float4x4 instance_matrix = instance_arr[point_info[0]].matrix;
-  const uint32_t mesh_index = instance_arr[point_info[0]].mesh_index;
-
-  const float3 min_bound = mul(instance_matrix, float4(mesh_arr[mesh_index].min_bound, 1.0f)).xyz;
-  const float3 max_bound = mul(instance_matrix, float4(mesh_arr[mesh_index].max_bound, 1.0f)).xyz;
+  const float3 min_bound =
+      mul(instance.matrix, float4(mesh_voxel_aabb_arr_arr[mesh_index][aabb_index].min_bound, 1.0f)).xyz;
+  const float3 max_bound =
+      mul(instance.matrix, float4(mesh_voxel_aabb_arr_arr[mesh_index][aabb_index].max_bound, 1.0f)).xyz;
 
   const float3 corners[8] = {
     float3(min_bound.x, min_bound.y, min_bound.z), float3(max_bound.x, min_bound.y, min_bound.z),

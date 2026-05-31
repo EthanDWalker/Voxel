@@ -179,7 +179,7 @@ static Mat4f32 InstanceMatrix(const Vec3f32 translation, const Quat rotation, co
   }
 
   for (u32 i = 0; i < 3; i++) {
-    matrix[i][3] = translation[i];
+    matrix[3][i] = translation[i];
   }
 
   return matrix;

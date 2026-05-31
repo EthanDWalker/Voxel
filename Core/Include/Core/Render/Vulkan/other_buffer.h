@@ -67,8 +67,9 @@ template <typename ValueType> struct VulkanBuffer<BufferType::CountedBuffer, Val
 
   // only call this if only appending on the CPU
   // staging buffer is assumed to only conatain one ValueType
-  void Append(VulkanCommandBuffer &cmd, const VulkanBuffer<BufferType::StagingBuffer> &staging_buffer, const u32 count = 1) {
-    cmd.UploadBufferToBuffer(staging_buffer, *this, sizeof(ValueType) * count, 0,
+  void Append(VulkanCommandBuffer &cmd, const BaseVulkanBuffer &staging_buffer, const u32 count = 1,
+              const u32 src_offset = 0) {
+    cmd.UploadBufferToBuffer(staging_buffer, *this, sizeof(ValueType) * count, src_offset,
                              sizeof(ValueType) * cpu_append_count + sizeof(Header));
     cpu_append_count += count;
     cmd.FillBuffer(*this, sizeof(u32), cpu_append_count, offsetof(Header, count));

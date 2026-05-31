@@ -499,7 +499,7 @@ void PipelineBuilder<PipelineType::Raytrace>::Build(VulkanPipeline<PipelineType:
 
   shader_group.generalShader = VK_SHADER_UNUSED_KHR;
   shader_group.closestHitShader = ShaderStages::CLOSEST_HIT;
-  shader_group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+  shader_group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
   shader_groups[ShaderStages::CLOSEST_HIT] = shader_group;
 
   LoadShaderModule(shader_src[ShaderStages::RAY_GEN], &shader_modules[ShaderStages::RAY_GEN]);

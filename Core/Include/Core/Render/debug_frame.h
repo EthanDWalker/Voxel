@@ -1,3 +1,5 @@
 #pragma once
 
-namespace Core {}
+namespace Core {
+void DrawDebugAABBs();
+}

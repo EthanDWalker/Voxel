@@ -53,6 +53,10 @@ u32 GetGlbAccessorComponentTypeSize(const GlbAccessorComponentType type) {
   case GlbAccessorComponentType::f32: {
     return 4;
   }
+  default: {
+    Assert(false, "unknown glb accessor component type");
+    return 0;
+  }
   }
 }
 
@@ -76,7 +80,7 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
 
   Assert(json_chunk_header.type == GlbChunkType::Json, "initial chunk type is not json");
 
-  const JsonObject json_object = ParseJsonStream(file, json_chunk_header.length);
+  JsonObject *json_object = ParseJsonStream(file, json_chunk_header.length);
 
   GlbChunkHeader bin_chunk_header;
   file.read((char *)&bin_chunk_header, sizeof(GlbChunkHeader));
@@ -85,17 +89,17 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
 
   object_data.name = file_path.filename().stem().string();
 
-  const JsonArray node_array = json_object.FindNoFail("nodes");
-  const JsonArray mesh_array = json_object.FindNoFail("meshes");
-  const JsonArray accessor_array = json_object.FindNoFail("accessors");
-  const JsonArray buffer_view_array = json_object.FindNoFail("bufferViews");
+  const JsonArray node_array = json_object->FindNoFail("nodes");
+  const JsonArray mesh_array = json_object->FindNoFail("meshes");
+  const JsonArray accessor_array = json_object->FindNoFail("accessors");
+  const JsonArray buffer_view_array = json_object->FindNoFail("bufferViews");
 
-  const JsonArray material_array = json_object.FindNoFail("materials");
-  const JsonArray texture_array = json_object.FindNoFail("textures");
+  const JsonArray material_array = json_object->FindNoFail("materials");
+  const JsonArray texture_array = json_object->FindNoFail("textures");
   object_data.material_data_arr.resize(texture_array.value_count);
 
-  const JsonArray image_array = json_object.FindNoFail("images");
-  const JsonArray sampler_array = json_object.FindNoFail("samplers");
+  const JsonArray image_array = json_object->FindNoFail("images");
+  const JsonArray sampler_array = json_object->FindNoFail("samplers");
 
   const u64 bin_offset = sizeof(GlbHeader) + sizeof(GlbChunkHeader) * 2 + json_chunk_header.length;
 
@@ -303,5 +307,8 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
       instance.matrix = instance_matrix;
     }
   }
+
+  json_object->Free();
+  free(json_object);
 }
 } // namespace Core

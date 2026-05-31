@@ -1,6 +1,7 @@
 #include "editor.h"
 #include "Core/Render/add.h"
 #include "Core/Render/context.h"
+#include "Core/Render/debug_frame.h"
 #include "Core/Render/frame.h"
 #include "Core/Render/types.h"
 #include "Core/Util/Parse/object.h"
@@ -16,9 +17,9 @@ void Editor::StartUp() {
 
   Core::ObjectData object_data;
 
-#if 1
-  Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/DragonAttenuation.glb", object_data);
-  Core::WriteObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/DragonAttenuation", object_data);
+#if 0
+  Core::ParseGlbFile("C:/Users/ethan/Developer/Voxel/Editor/Assets/bistro.glb", object_data);
+  Core::WriteObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Bistro", object_data);
 #else
   Core::ReadObjectFolder("C:/Users/ethan/Developer/Voxel/Editor/Assets/Sponza", object_data);
 #endif
@@ -35,10 +36,13 @@ void Editor::StartUp() {
   };
 
   Core::AddDirectionalLight(dir_light);
+
+  camera.speed = 100.0f;
 }
 
 void Editor::Run() {
   f32 delta_time = 0.0f;
+  f32 acc_time = 0.0f;
 
   f32 frame_test_acc = 0.0f;
   u32 current_samples = 0;
@@ -74,6 +78,9 @@ void Editor::Run() {
 
     Core::Frame(camera);
 
+    if (Core::InputContext::GetHeld(Core::Input::B))
+      Core::DrawDebugAABBs();
+
     Core::EndFrame(resize);
 
     if (resize) {
@@ -102,6 +109,7 @@ void Editor::Run() {
     }
 
     delta_time = timer.Elapsed();
+    acc_time += delta_time;
   }
 }
 

@@ -51,7 +51,7 @@ struct JsonObject {
   }
 };
 
-JsonObject ParseJsonStream(std::ifstream &file, const u64 file_size);
+JsonObject *ParseJsonStream(std::ifstream &file, const u64 file_size);
 
 void PrintJsonGraph(const JsonObject &object, const std::string &indentation = "");
 }; // namespace Core

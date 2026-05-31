@@ -16,26 +16,65 @@ enum JsonToken : char {
 
 void JsonArray::Free() {
   ZoneScoped;
+
   for (u32 i = 0; i < value_count; i++) {
-    if (value_type_arr[i] == JsonValueType::Array) {
-      value_arr[i].array->Free();
+    switch (value_type_arr[i]) {
+
+    case JsonValueType::Array: {
+      if (value_arr[i].array) {
+        value_arr[i].array->Free();
+        free(value_arr[i].array);
+        value_arr[i].array = nullptr;
+      }
+      break;
     }
-    if (value_type_arr[i] == JsonValueType::Object) {
-      value_arr[i].object->Free();
+
+    case JsonValueType::Object: {
+      if (value_arr[i].object) {
+        value_arr[i].object->Free();
+        free(value_arr[i].object);
+        value_arr[i].object = nullptr;
+      }
+      break;
     }
-    free(value_arr[i].data);
+
+    case JsonValueType::String: {
+      free(value_arr[i].string);
+      value_arr[i].string = nullptr;
+      break;
+    }
+
+    default:
+      break;
+    }
   }
+
   free(value_arr);
+  value_arr = nullptr;
+
   free(value_type_arr);
+  value_type_arr = nullptr;
+
+  value_count = 0;
 }
 
 void JsonObject::Free() {
   ZoneScoped;
+
   for (u32 i = 0; i < arr_count; i++) {
-    free((void *)name_arr[i]);
+    free(name_arr[i]);
+    name_arr[i] = nullptr;
+
     arr_arr[i].Free();
   }
+
+  free(arr_arr);
+  arr_arr = nullptr;
+
   free(name_arr);
+  name_arr = nullptr;
+
+  arr_count = 0;
 }
 
 const std::optional<JsonArray> JsonObject::Find(const char *name) const {
@@ -245,16 +284,19 @@ JsonObject *ParseJsonObjectFromCursor(u64 &cursor, const char *file_data) {
   }
 }
 
-JsonObject ParseJsonStream(std::ifstream &file, const u64 file_size) {
+JsonObject *ParseJsonStream(std::ifstream &file, const u64 file_size) {
   ZoneScoped;
   Assert(file.is_open(), "Must open file before parsing JSON");
 
-  const char *file_data = (const char *)malloc(file_size);
+  char *const file_data = (char *const)malloc(file_size);
   file.read((char *)file_data, file_size);
 
   // first NewObject token
   u64 cursor = 1;
-  return *ParseJsonObjectFromCursor(cursor, file_data);
+  JsonObject *object = ParseJsonObjectFromCursor(cursor, file_data);
+  free(file_data);
+
+  return object;
 }
 
 void PrintJsonGraph(const JsonObject &object, const std::string &indentation) {

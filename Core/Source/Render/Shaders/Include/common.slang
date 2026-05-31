@@ -159,6 +159,18 @@ struct RWCountedBuffer<T> {
     get { return buffer.Load<uint32_t>(0); }
   };
 
+  property uint32_t count {
+    get { return buffer.Load<uint32_t>(4); }
+  }
+
+  __subscript(const uint32_t index)->T {
+    get { return buffer.Load<T>(sizeof(CountedBufferHeader) + sizeof(T) * index); }
+  }
+
+  void Store(const uint32_t index, const T value) {
+    buffer.Store<T>(sizeof(CountedBufferHeader) + sizeof(T) * index, value);
+  }
+
   bool Append(const T value) {
     uint32_t index;
     buffer.InterlockedAdd(4, 1, index);
@@ -188,10 +200,12 @@ struct CountedBuffer<T> {
   }
 };
 
-uint32_t SumComponents(const uint32_t3 v) { return v.x + v.y + v.z; }
-uint64_t SumComponents(const uint64_t2 v) { return v.x + v.y; }
-uint64_t SumComponents(const uint64_t3 v) { return v.x + v.y + v.z; }
-uint32_t SumComponents(const uint32_t4 v) { return v.x + v.y + v.z + v.w; }
+T SumComponents<T>(const vector<T, 4> v)
+    where T : IArithmetic { return v.x + v.y + v.z + v.w; }
+T SumComponents<T>(const vector<T, 3> v)
+    where T : IArithmetic { return v.x + v.y + v.z; }
+T SumComponents<T>(const vector<T, 2> v)
+    where T : IArithmetic { return v.x + v.y; }
 
 uint32_t PackRGBA8(const float4 data) {
   static const float ratio = float((1 << 8) - 1);

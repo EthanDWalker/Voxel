@@ -48,7 +48,7 @@ template <> struct PipelineBuilder<PipelineType::Raytrace> {
   std::vector<VkDescriptorSetLayout> descriptor_set_layouts = {};
   VkRayTracingShaderGroupCreateInfoKHR shader_groups[ShaderStages::SHADER_STAGE_COUNT] = {};
   std::filesystem::path shader_src[ShaderStages::SHADER_STAGE_COUNT];
-  u8 max_recursion = 0;
+  u8 max_recursion = 1;
 
   void SetShaders(const std::filesystem::path &ray_gen, const std::filesystem::path &miss,
                   const std::filesystem::path &closest_hit) {

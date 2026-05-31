@@ -28,6 +28,22 @@ struct alignas(GPU_ALIGNMENT) DirectionalLight {
   Vec3f32 color;
 };
 
+struct LeafNode {
+  u32 data;
+};
+
+static const u32 LEAF_PAGE_SIZE_EXP = 16;
+static const u32 LEAF_PAGE_SIZE = 1 << LEAF_PAGE_SIZE_EXP;
+
+static const u32 VOXEL_AABB_SIZE_EXP = 5;
+static const f32 VOXEL_AABB_SIZE = 1 << VOXEL_AABB_SIZE_EXP;
+static const f32 VOXEL_SIZE = (1 << (VOXEL_AABB_SIZE_EXP - 2));
+
+struct LeafHeader {
+  u32 allocated_leaf_count;
+  u32 page_size_exp = LEAF_PAGE_SIZE_EXP;
+};
+
 struct AABB {
   Vec3f32 min;
   Vec3f32 max;
@@ -35,6 +51,7 @@ struct AABB {
 
 struct BranchNode {
   u64 child_mask;
+  u32 child_ptr;
 };
 
 enum class SamplerFilter : u8 {
