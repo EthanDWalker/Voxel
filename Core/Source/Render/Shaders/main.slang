@@ -70,17 +70,22 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
     }
 
     {
-      RaycastResult indirect_light_res;
-      const float3 indirect_light_dir = GetPixelRayDir(
-          dispatch_id >> INDIRECT_PREPASS_SCALE_EXP, image_size >> INDIRECT_PREPASS_SCALE_EXP, inv_view_proj);
-      const float indirect_t = SampleBeamImage(
-          (dispatch_id >> INDIRECT_PREPASS_SCALE_EXP) << INDIRECT_PREPASS_SCALE_EXP, beam_image);
-      Raycast(ray_origin + indirect_t * indirect_light_dir, indirect_light_dir, indirect_light_res);
-
       bool in_set;
-      const IndirectLightValue indirect_value = hash_set.GetId(indirect_light_res.leaf_ptr, in_set);
+      IndirectLightValue indirect_value = hash_set.GetId(res.leaf_ptr, in_set);
 
-      acc += res.hit_color.rgb * indirect_value.indirect_light * directional_light_arr[0].intensity;
+      if (!in_set) {
+        RaycastResult indirect_light_res;
+        const float3 indirect_light_dir =
+            GetPixelRayDir(dispatch_id >> INDIRECT_PREPASS_SCALE_EXP,
+                           image_size >> INDIRECT_PREPASS_SCALE_EXP, inv_view_proj);
+        const float indirect_t = SampleBeamImage(
+            (dispatch_id >> INDIRECT_PREPASS_SCALE_EXP) << INDIRECT_PREPASS_SCALE_EXP, beam_image);
+        Raycast(ray_origin + indirect_t * indirect_light_dir, indirect_light_dir, indirect_light_res);
+
+        indirect_value = hash_set.GetId(indirect_light_res.leaf_ptr, in_set);
+      }
+
+      // acc += res.hit_color.rgb * indirect_value.indirect_light * directional_light_arr[0].intensity;
     }
 
     image.Store(dispatch_id, float4(acc, 1.0f));

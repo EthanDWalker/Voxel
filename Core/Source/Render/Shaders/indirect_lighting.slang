@@ -115,7 +115,7 @@ void CMain(const uint32_t dispatch_id: SV_DispatchThreadID, const uniform uint32
   const float3 indirect_lighting_dir = CosineWeightedHemisphere(normal, Random2(seed));
   const float weight = dot(normal, indirect_lighting_dir) / PI;
 
-  const uint32_t max_bounces = 1;
+  const uint32_t max_bounces = 0;
   const float3 indirect_light = CastRay(ray_origin, indirect_lighting_dir, seed, weight, max_bounces);
 
   bool in_set;

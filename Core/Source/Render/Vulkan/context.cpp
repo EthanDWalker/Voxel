@@ -103,7 +103,6 @@ void VulkanContext::StartUp() {
   features_12.shaderFloat16 = true;
   features_12.shaderOutputLayer = true;
   features_12.shaderBufferInt64Atomics = true;
-  features_12.timelineSemaphore = true;
 
   VkPhysicalDeviceVulkan11Features features_11{};
   features_11.storageBuffer16BitAccess = true;
@@ -113,25 +112,12 @@ void VulkanContext::StartUp() {
   robustness_2.pNext = nullptr;
   robustness_2.nullDescriptor = true;
 
-  VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features{};
-  as_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-  as_features.accelerationStructure = true;
-  as_features.descriptorBindingAccelerationStructureUpdateAfterBind = true;
-
-  VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracing_features{};
-  raytracing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-  raytracing_features.rayTracingPipeline = true;
-
   vkb::PhysicalDeviceSelector physical_device_selector{vkb_instance};
 
   VkPhysicalDeviceFaultFeaturesEXT fault_features{};
   fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
   fault_features.deviceFault = VK_TRUE;
   fault_features.deviceFaultVendorBinary = VK_TRUE;
-
-  VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features{};
-  raytracing_validation_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV;
-  raytracing_validation_features.rayTracingValidation = true;
 
   VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{};
   float_atomic_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
@@ -149,16 +135,10 @@ void VulkanContext::StartUp() {
           .add_required_extension_features(robustness_2)
           .add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
           .add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
-          .add_required_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
-          .add_required_extension_features(as_features)
-          .add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
-          .add_required_extension_features(raytracing_features)
-
+    /*
           .add_required_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME)
           .add_required_extension_features(fault_features)
-          .add_required_extension(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)
-          .add_required_extension_features(raytracing_validation_features)
-
+    */
           .add_required_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME)
           .add_required_extension_features(float_atomic_features)
           .select()

@@ -10,7 +10,7 @@ struct VoxelVolume {
 };
 
 void ClearIndexFromPtrStack(const uint32_t3 index, const uint32_t initial_level) {
-  for (uint32_t level = initial_level; level > 0; level--) {
+  for (uint32_t level = initial_level; level >= initial_ptr_stack_depth; level--) {
     const uint32_t ptr = ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth];
     const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
     const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);

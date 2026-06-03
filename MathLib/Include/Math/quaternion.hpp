@@ -107,9 +107,9 @@ constexpr Quat FromRotationMatrix(const Mat4f32 &m) {
 constexpr Mat3f32 ToRotationMatrix(const Quat q) {
   // clang-format off
   return Mat3f32(
-Vec3f32(2.0f * (q.w * q.w + q.x * q.x) - 1.0f, 2.0f * (q.x * q.y - q.w * q.z), 2.0f * (q.x * q.z + q.w * q.y)),
-Vec3f32(2.0f * (q.x * q.y + q.w * q.z), 2.0f * (q.w * q.w + q.y * q.y) - 1.0f, 2.0f * (q.y * q.z - q.w * q.x)),
-Vec3f32(2.0f * (q.x * q.z - q.w * q.y), 2.0f * (q.y * q.z + q.w * q.x), 2.0f * (q.w * q.w + q.z * q.z) - 1.0f)
+Vec3f32(1.0f - 2.0f * (q.y * q.y + q.z * q.z), 2.0f * (q.x * q.y - q.z * q.w), 2.0f * (q.x * q.z + q.y * q.w)),
+Vec3f32(2.0f * (q.x * q.y + q.z * q.w), 1.0f - 2.0f * (q.x * q.x + q.z * q.z), 2.0f * (q.y * q.z - q.x * q.w)),
+Vec3f32(2.0f * (q.x * q.z - q.y * q.w), 2.0f * (q.y * q.z + q.x * q.w), 1.0f - 2.0f * (q.x * q.x + q.y * q.y))
   );
   // clang-format on
 }

@@ -5,12 +5,9 @@
 #include "Include/voxel_tree.slang"
 
 [[vk::binding(2, 0)]]
-StructuredBuffer<Instance> instance_arr;
-
-[[vk::binding(3, 0)]]
 Texture2D<float4> albedo_image[];
 
-[[vk::binding(4, 0)]]
+[[vk::binding(3, 0)]]
 SamplerState albedo_image_sampler;
 
 [shader("fragment")]

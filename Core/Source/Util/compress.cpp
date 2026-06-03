@@ -4,6 +4,7 @@
 #include "Core/Render/Vulkan/submission_pass.h"
 #include "Core/Render/types.h"
 #include "Core/Util/context.h"
+#include "Core/Util/types.h"
 
 namespace Core {
 
@@ -31,9 +32,12 @@ void CompressBC1(const Vec2u32 extent, VulkanBuffer<BufferType::StagingBuffer> &
 
       cmd.BindSubPass(compression_pass);
 
+      BC1CompressionPushConstants push_constants{};
+      push_constants.extent = extent;
+
       cmd.BindPipeline(util_context->bc1_compression_pipeline);
       cmd.BindDescriptors({util_context->bc1_compression_descriptor});
-      cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(Vec2u32), &extent);
+      cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(BC1CompressionPushConstants), &push_constants);
       cmd.Dispatch(Vec3u32((blocks / 8) + 1, 1));
     }
   });

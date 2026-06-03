@@ -8,9 +8,6 @@ StructuredBuffer<Vertex> vertex_arr_arr[];
 [[vk::binding(1, 0)]]
 StructuredBuffer<uint32_t> index_arr_arr[];
 
-[[vk::binding(2, 0)]]
-StructuredBuffer<Instance> instance_arr;
-
 struct VertexInfo {
   uint32_t vertex_id;
   uint32_t triangle_id;
@@ -53,8 +50,7 @@ float3x3 GetNormalMatrix(const float4x4 m) {
 [maxvertexcount(3)]
 void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInfo> output_stream,
            const uniform AllocateInfo alloc_info) {
-  const Instance instance = instance_arr[alloc_info.instance_index];
-  const uint32_t mesh_id = instance.mesh_index;
+  const uint32_t mesh_id = alloc_info.mesh_index;
 
   Vertex input[3];
 
@@ -62,10 +58,10 @@ void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInf
     input[i] = vertex_arr_arr[mesh_id][index_arr_arr[mesh_id][triangle_info[0].triangle_id * 3 + i]];
   }
 
-  const float4x4 instance_matrix = instance.matrix;
+  const float4x4 instance_matrix = alloc_info.instance_matrix;
   const float3x3 normal_matrix = GetNormalMatrix(instance_matrix);
 
-  const float3 normal = normalize(mul(input[0].normal, normal_matrix));
+  const float3 normal = normalize(cross(input[1].position - input[0].position, input[2].position - input[0].position));
   const float3 abs_normal = abs(normal);
 
   const Axis projection_axis = (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) ? Axis::X
@@ -75,8 +71,8 @@ void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInf
   for (uint32_t i = 0; i < 3; i++) {
     VoxelizeInfo voxelize_info;
     voxelize_info.uv = float16_t2(input[i].uv);
-    voxelize_info.world_position = mul(instance.matrix, float4(input[i].position, 1.0f)).xyz;
-    voxelize_info.normal = mul(normal_matrix, input[i].normal);
+    voxelize_info.world_position = mul(instance_matrix, float4(input[i].position, 1.0f)).xyz;
+    voxelize_info.normal = mul(normal_matrix, -normal);
 
     const float3 pos = (voxelize_info.world_position / (box_size / 2.0f));
     voxelize_info.position = float4((projection_axis == Axis::X)   ? pos.yz

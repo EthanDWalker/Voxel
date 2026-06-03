@@ -51,9 +51,8 @@ struct RenderContext {
   VulkanPipeline<PipelineType::Compute> indirect_lighting_prepass_pipeline;
   VulkanPipeline<PipelineType::Compute> indirect_lighting_pipeline;
 
-  VulkanPipeline<PipelineType::Graphic> allocate_pipeline;
-  VulkanPipeline<PipelineType::Graphic> allocate_child_mask_pipeline;
-  VulkanPipeline<PipelineType::Graphic> debug_aabb_pipeline;
+  VulkanPipeline<PipelineType::Graphic> allocate_branch_pipeline;
+  VulkanPipeline<PipelineType::Graphic> allocate_leaf_pipeline;
 
   VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
@@ -75,9 +74,6 @@ struct RenderContext {
   std::vector<VoxelVolume> clear_volume_cmds;
   std::mutex clear_volume_cmd_mutex;
 
-  VulkanBuffer<BufferType::CountedBuffer, AABB> aabb_counted_buffer = "aabb counted buffer";
-
-  VulkanBuffer<BufferType::CountedBuffer, Instance> instance_counted_buffer = "instance counted buffer";
   VulkanDescriptorLayout mesh_descriptor_layout;
   VulkanDescriptor mesh_descriptor;
 

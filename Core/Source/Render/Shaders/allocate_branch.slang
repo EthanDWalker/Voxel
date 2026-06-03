@@ -4,9 +4,6 @@
 #define VOXEL_TREE_SET_BINDING 1
 #include "Include/voxel_tree.slang"
 
-[[vk::binding(5, 0)]]
-RWCountedBuffer<AABB> aabb_arr;
-
 void Allocate(const uint32_t3 index, const uint32_t depth, const bool leaf) {
   uint32_t ptr = GetLocalIndex(index, 0);
 

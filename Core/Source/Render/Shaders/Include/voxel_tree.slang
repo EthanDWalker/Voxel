@@ -93,9 +93,10 @@ struct VoxelizeInfo {
 };
 
 struct AllocateInfo {
+  float4x4 instance_matrix;
   uint32_t depth;
   uint32_t leaf;
-  uint32_t instance_index;
+  uint32_t mesh_index;
   uint32_t albedo_image_index;
 };
 
@@ -196,15 +197,6 @@ float3 GetWorldPositionCenter(const uint32_t3 tree_index, const uint32_t level) 
   const float level_voxel_size = FloatMultiplyBy2ToN(voxel_size, level_shift);
   return (tree_index >> level_shift) * level_voxel_size + voxel_tree_header.min_bound +
          (level_voxel_size * 0.5f);
-}
-
-AABB GetVoxelWorldAABB(const uint32_t3 tree_index, const uint32_t level) {
-  const uint32_t level_shift = ((voxel_tree_header.max_depth - 1) - level) << 1;
-  const float level_voxel_size = FloatMultiplyBy2ToN(voxel_size, level_shift);
-  AABB aabb;
-  aabb.min_bound = (tree_index >> level_shift) * level_voxel_size + voxel_tree_header.min_bound;
-  aabb.max_bound = aabb.min_bound + level_voxel_size;
-  return aabb;
 }
 
 vector<uint32_t, N> GetTreeIndex<let N : int>(const vector<float, N> p) {

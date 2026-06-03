@@ -9,6 +9,10 @@ struct UtilContext {
   VulkanDescriptorLayout bc1_compression_descriptor_layout;
   VulkanDescriptor bc1_compression_descriptor;
 
+  VulkanPipeline<PipelineType::Compute> generate_terrain_pipeline;
+  VulkanDescriptorLayout generate_terrain_descriptor_layout;
+  VulkanDescriptor generate_terrain_descriptor;
+
   UtilContext();
   ~UtilContext();
 };

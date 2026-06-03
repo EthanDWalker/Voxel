@@ -1,6 +1,6 @@
 #pragma once
 
-static const uint32_t PTR_STACK_SIZE = 4;
+static const uint32_t PTR_STACK_SIZE = 3;
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
 static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
 static const uint32_t SENTINAL = 0xFFFFFFFF;
@@ -15,71 +15,10 @@ enum Axis {
 
 typedef uint32_t Index;
 
-struct Instance {
-  float4 _row_0;
-  float4 _row_1;
-  float4 _row_2;
-  uint32_t _mesh_id_mask;
-  uint32_t _binding_table_offset_flags;
-  uint2 _blas_address;
-
-  property float4x4 matrix {
-    get { return float4x4(_row_0, _row_1, _row_2, float4(0.0f, 0.0f, 0.0f, 1.0f)); }
-    set {
-      _row_0 = newValue[0];
-      _row_1 = newValue[1];
-      _row_2 = newValue[2];
-    }
-  }
-
-  property uint32_t mesh_index {
-    get { return _mesh_id_mask & 0xFFFFFF; }
-  }
-
-  property float3 translation {
-    get { return float3(_row_0[3], _row_1[3], _row_2[3]); }
-    set {
-      _row_0[3] = newValue[0];
-      _row_1[3] = newValue[1];
-      _row_2[3] = newValue[2];
-    }
-  }
-
-  bool Exists() { return any(_row_0 != float4(0.0f)); }
-};
-
 struct DirectionalLight {
   float3 direction;
   float intensity;
   float3 color;
-};
-
-struct AABB {
-  float min_bound_x;
-  float min_bound_y;
-  float min_bound_z;
-
-  float max_bound_x;
-  float max_bound_y;
-  float max_bound_z;
-
-  property float3 min_bound {
-    get { return float3(min_bound_x, min_bound_y, min_bound_z); }
-    set {
-      this.min_bound_x = newValue.x;
-      this.min_bound_y = newValue.y;
-      this.min_bound_z = newValue.z;
-    }
-  };
-
-  property float3 max_bound {
-    get { return float3(max_bound_x, max_bound_y, max_bound_z); }
-    set {
-      this.max_bound_x = newValue.x;
-      this.max_bound_y = newValue.y;
-      this.max_bound_z = newValue.z;
-    }
-  };
 };
 
 struct IndirectLightingRayDispatch {
@@ -112,6 +51,7 @@ struct Vertex {
 
   property float3 position {
     get { return f16tof32(uint32_t3(position_data >> uint32_t3(32, 16, 0)) & 0xFFFF); }
+    set { position_data = SumComponents(uint64_t3(f32tof16(newValue)) << uint32_t3(32, 16, 0)); }
   };
 
   property float3 normal {
@@ -124,10 +64,20 @@ struct Vertex {
 
       return normalize(float3(cos(phi), sin(phi) * sin(theta), sin(phi) * cos(theta)));
     }
+    set {
+      normal_data = 0;
+
+      const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
+      normal_data |= uint16_t((atan2(newValue.y, newValue.x) + PI) * theta_ratio) << 0;
+
+      const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
+      normal_data |= uint16_t(acos(newValue.z) * phi_ratio) << 8;
+    }
   };
 
   property float2 uv {
     get { return f16tof32((uv_data >> uint32_t2(0, 16)) & 0xFFFF); }
+    set { uv_data = (uint32_t)SumComponents(asuint(f32tof16(newValue)) << uint32_t2(0, 16)); }
   };
 }
 
@@ -192,6 +142,13 @@ uint32_t SumComponents(const uint32_t3 v) { return v.x + v.y + v.z; }
 uint64_t SumComponents(const uint64_t2 v) { return v.x + v.y; }
 uint64_t SumComponents(const uint64_t3 v) { return v.x + v.y + v.z; }
 uint32_t SumComponents(const uint32_t4 v) { return v.x + v.y + v.z + v.w; }
+
+T SumComponent<T>(const vector<T, 2> v)
+    where T : IArithmetic { return v.x + v.y; }
+T SumComponent<T>(const vector<T, 3> v)
+    where T : IArithmetic { return v.x + v.y + v.z; }
+T SumComponent<T>(const vector<T, 4> v)
+    where T : IArithmetic { return v.x + v.y + v.z + v.w; }
 
 uint32_t PackRGBA8(const float4 data) {
   static const float ratio = float((1 << 8) - 1);

@@ -9,6 +9,7 @@ using Index = u32;
 using Instance = VkAccelerationStructureInstanceKHR;
 
 struct alignas(GPU_ALIGNMENT) AllocateInfo {
+  Mat4f32 instance_matrix;
   u32 depth;
   u32 leaf;
   u32 instance_index;

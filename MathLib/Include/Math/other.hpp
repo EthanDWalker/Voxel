@@ -4,8 +4,8 @@
 #include "quaternion.hpp"
 #include "types.hpp"
 #include "vector.hpp"
-#include <iostream>
 #include <format>
+#include <iostream>
 
 template <typename T> constexpr const T Radians(const T degrees) {
   return degrees * static_cast<T>(0.01745329251994329576923690768489);
@@ -134,6 +134,26 @@ static u32 PackSnorm10(f32 v) {
 
 static u32 PackRGB10A2(const Vec3f32 n, u32 a) {
   return (PackSnorm10(n.x)) | ((PackSnorm10(n.y) << 10)) | ((PackSnorm10(n.z) << 20)) | ((a & 0x3) << 30);
+}
+
+static u32 PackRGBA8(const Vec4f32 v) {
+  static const f32 ratio = (1 << 8) - 1;
+  u32 value = 0;
+  value |= u32(v.a * ratio) << 24;
+  value |= u32(v.b * ratio) << 16;
+  value |= u32(v.g * ratio) << 8;
+  value |= u32(v.r * ratio) << 0;
+  return value;
+}
+
+static Vec4f32 UnpackRGBA8(const u32 data) {
+  static const f32 ratio = 1.0f / float((1 << 8) - 1);
+  Vec4f32 v;
+  v.a = ((data >> 24) & 0xFF) * ratio;
+  v.b = ((data >> 16) & 0xFF) * ratio;
+  v.g = ((data >> 8) & 0xFF) * ratio;
+  v.r = ((data >> 0) & 0xFF) * ratio;
+  return v;
 }
 
 static u16 PackNormal(Vec3f32 normal) {

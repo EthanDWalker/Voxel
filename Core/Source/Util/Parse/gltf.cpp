@@ -254,13 +254,13 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
         file.read((char *)&((Index *)mesh.index_host_buffer->host_address)[i], index_stride);
       }
 
-      mesh.aabb.min.z = position_accessor_object.FindNoFail("min").value_arr[0].number;
+      mesh.aabb.min.x = position_accessor_object.FindNoFail("min").value_arr[0].number;
       mesh.aabb.min.y = position_accessor_object.FindNoFail("min").value_arr[1].number;
-      mesh.aabb.min.x = position_accessor_object.FindNoFail("min").value_arr[2].number;
+      mesh.aabb.min.z = position_accessor_object.FindNoFail("min").value_arr[2].number;
 
-      mesh.aabb.max.z = position_accessor_object.FindNoFail("max").value_arr[0].number;
+      mesh.aabb.max.x = position_accessor_object.FindNoFail("max").value_arr[0].number;
       mesh.aabb.max.y = position_accessor_object.FindNoFail("max").value_arr[1].number;
-      mesh.aabb.max.x = position_accessor_object.FindNoFail("max").value_arr[2].number;
+      mesh.aabb.max.z = position_accessor_object.FindNoFail("max").value_arr[2].number;
     }
   }
 
@@ -282,9 +282,9 @@ void ParseGlbFile(const std::filesystem::path &file_path, ObjectData &object_dat
 
     Quat rotation;
     if (node_object->Find("rotation").has_value()) {
-      rotation.y = node_object->Find("rotation")->value_arr[0].number;
-      rotation.z = node_object->Find("rotation")->value_arr[1].number;
-      rotation.x = node_object->Find("rotation")->value_arr[2].number;
+      rotation.x = node_object->Find("rotation")->value_arr[0].number;
+      rotation.y = node_object->Find("rotation")->value_arr[1].number;
+      rotation.z = node_object->Find("rotation")->value_arr[2].number;
       rotation.w = node_object->Find("rotation")->value_arr[3].number;
     }
 
