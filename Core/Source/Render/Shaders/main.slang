@@ -23,6 +23,15 @@ float3 GetPixelRayDir(const uint32_t2 pixel_index, const uint32_t2 image_size, c
   return normalize(pixel_center_world.xyz / pixel_center_world.w - camera.position);
 }
 
+float3 TonemapACES(const float3 x) {
+  const float a = 2.51f;
+  const float b = 0.03f;
+  const float c = 2.43f;
+  const float d = 0.59f;
+  const float e = 0.14f;
+  return (x * (a * x + b)) / (x * (c * x + d) + e);
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
@@ -49,8 +58,8 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
 
     {
       const float3 L = -directional_light_arr[0].direction;
-      const float light_impact = max(dot(L, res.hit_normal), 0.0f);
-      float shadow_impact;
+      const float light_impact = max(dot(L, res.hit_normal), 0.0f);// * directional_light_arr[0].intensity;
+      float shadow_impact = 1.0f;
 
       bool in_set;
       const IndirectLightValue shadow_value = hash_set.GetId(res.leaf_ptr, in_set);
@@ -85,11 +94,12 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
         indirect_value = hash_set.GetId(indirect_light_res.leaf_ptr, in_set);
       }
 
-      // acc += res.hit_color.rgb * indirect_value.indirect_light * directional_light_arr[0].intensity;
+      acc += res.hit_color.rgb * indirect_value.indirect_light * directional_light_arr[0].intensity;
     }
 
-    image.Store(dispatch_id, float4(acc, 1.0f));
+    image.Store(dispatch_id, float4(TonemapACES(float3(acc)), 1.0f));
   } else {
-    image.Store(dispatch_id, float4(SampleEnvironmentColor(ray_dir, directional_light_arr[0]), 1.0f));
+    image.Store(dispatch_id,
+                float4(TonemapACES(SampleEnvironmentColor(ray_dir, directional_light_arr[0])), 1.0f));
   }
 }

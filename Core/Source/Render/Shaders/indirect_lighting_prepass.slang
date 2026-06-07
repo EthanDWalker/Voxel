@@ -76,7 +76,7 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
       RaycastResult shadow_res;
       Raycast(ray_origin, L, shadow_res);
       if (shadow_res.hit) {
-        occlusion_data[hash_set_index].add(1 << 1);
+        occlusion_data[hash_set_index].or(1 << 1);
       }
 
       if (last_in_set) {

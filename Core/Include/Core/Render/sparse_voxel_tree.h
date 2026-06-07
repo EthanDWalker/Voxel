@@ -14,11 +14,11 @@ struct SparseVoxelTree {
   static const u32 SENTINAL = 0xFFFFFFFF;
 
   static const u32 MAX_PAGES = 100'000;
-  static const u32 MAX_DEPTH = 6;
+  static const u32 MAX_DEPTH = 4;
 
   static const u32 PAGE_SIZE_EXP = 17;
   static const u32 PAGE_SIZE = 1 << PAGE_SIZE_EXP;
-  static const u32 BOX_SIZE_EXP = 12;
+  static const u32 BOX_SIZE_EXP = 9;
   constexpr static const f32 MIN_BOUND = -1.0f * f32(1 << (BOX_SIZE_EXP - 1));
   constexpr static const f32 MAX_BOUND = f32(1 << (BOX_SIZE_EXP - 1));
   constexpr static const f32 VOXEL_SIZE = (1 << BOX_SIZE_EXP) / f32(1 << (MAX_DEPTH << 1));

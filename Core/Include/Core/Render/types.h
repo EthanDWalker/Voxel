@@ -8,7 +8,24 @@ const u32 GPU_ALIGNMENT = 16;
 using Index = u32;
 using Instance = VkAccelerationStructureInstanceKHR;
 
-struct alignas(GPU_ALIGNMENT) AllocateInfo {
+struct alignas(GPU_ALIGNMENT) ChunkAllocationInfo {
+  Vec3u32 chunk_index;
+  u32 lod;
+  u32 alloc_leaf;
+  u32 color;
+  u32 seed;
+};
+
+struct alignas(GPU_ALIGNMENT) TerrainAllocateInfo {
+  Vec2u32 extent;
+  Vec2f32 center;
+  f32 density;
+  i32 seed;
+  u32 depth;
+  u32 leaf;
+};
+
+struct alignas(GPU_ALIGNMENT) MeshAllocateInfo {
   Mat4f32 instance_matrix;
   u32 depth;
   u32 leaf;

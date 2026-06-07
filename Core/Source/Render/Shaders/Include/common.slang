@@ -1,6 +1,5 @@
 #pragma once
 
-static const uint32_t PTR_STACK_SIZE = 3;
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
 static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
 static const uint32_t SENTINAL = 0xFFFFFFFF;
@@ -269,14 +268,14 @@ float SampleBeamImage(const uint32_t2 main_image_location, const RWTexture2D<flo
 
 float3 SampleEnvironmentColor(const float3 ray_dir, const DirectionalLight sun) {
   static const float3 GROUND_COLOR = float3(0.1f);
-  static const float3 SKY_COLOR_HORIZON = float3(0.8f);
-  static const float3 SKY_COLOR_ZENITH = float3(0.6f, 0.75f, 1.0f);
+  static const float3 SKY_COLOR_HORIZON = float3(207, 236, 247) / 255.0f;
+  static const float3 SKY_COLOR_ZENITH = float3(160, 217, 239) / 255.0f;
 
   const float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray_dir.y), 0.35f);
   const float3 sky_gradient = lerp(SKY_COLOR_HORIZON, SKY_COLOR_ZENITH, sky_gradient_t);
   const float ground_to_sky_t = smoothstep(-0.01f, 0.0f, ray_dir.y);
 
-  const float sun_focus = 100.0f;
+  const float sun_focus = 300.0f;
   const float sun = pow(max(0, dot(ray_dir, -sun.direction)), sun_focus) * sun.intensity;
   const float sun_mask = step(ground_to_sky_t, 1.0f);
 

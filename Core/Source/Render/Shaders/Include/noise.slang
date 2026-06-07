@@ -1,5 +1,7 @@
 #pragma once
 
+// https://github.com/Auburn/FastNoiseLite/blob/master/HLSL
+
 static const float GRADIENTS_2D[] = {
   0.130526192220052f,  0.99144486137381f,   0.38268343236509f,   0.923879532511287f,  0.608761429008721f,
   0.793353340291235f,  0.793353340291235f,  0.608761429008721f,  0.923879532511287f,  0.38268343236509f,
@@ -54,3 +56,65 @@ static const float GRADIENTS_2D[] = {
   -0.923879532511287f, -0.38268343236509f,  -0.923879532511287f, 0.38268343236509f,   -0.38268343236509f,
   0.923879532511287f,
 };
+
+static const uint32_t3 PRIME = uint32_t3(501125321, 1136930381, 1720413743);
+
+float InterpQuintic(const float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
+
+int32_t Hash2D(const int32_t seed, const int32_t x, const int32_t y) {
+  int32_t hash = seed ^ x ^ y;
+
+  hash *= 0x27d4eb2d;
+  return hash;
+}
+
+float GradCoord2D(const int32_t seed, const int32_t x, const int32_t y, const float xd, const float yd) {
+  int hash = Hash2D(seed, x, y);
+  hash ^= hash >> 15;
+  hash &= 127 << 1;
+  return xd * GRADIENTS_2D[hash] + yd * GRADIENTS_2D[hash | 1];
+}
+
+float SamplePerlin(const int32_t seed, const float2 postion) {
+  int x0 = (int)floor(postion.x);
+  int y0 = (int)floor(postion.y);
+
+  float xd0 = (float)(postion.x - x0);
+  float yd0 = (float)(postion.y - y0);
+  float xd1 = xd0 - 1;
+  float yd1 = yd0 - 1;
+
+  float xs = InterpQuintic(xd0);
+  float ys = InterpQuintic(yd0);
+
+  x0 *= PRIME.x;
+  y0 *= PRIME.y;
+  int x1 = x0 + PRIME.x;
+  int y1 = y0 + PRIME.y;
+
+  float xf0 = lerp(GradCoord2D(seed, x0, y0, xd0, yd0), GradCoord2D(seed, x1, y0, xd1, yd0), xs);
+  float xf1 = lerp(GradCoord2D(seed, x0, y1, xd0, yd1), GradCoord2D(seed, x1, y1, xd1, yd1), xs);
+
+  return lerp(xf0, xf1, ys) * 1.4247691104677813f;
+}
+
+float Amplify(const float h) { return h * h * (h > 0.7f ? h : 1.0f) * 25.0f; }
+
+float SampleNoise(const int32_t seed, const float2 position) {
+  const uint32_t octaves = 4;
+  const float persistance = 0.5f;
+  const float lacunarity = 2.5f;
+
+  float amplitude = 1.0f;
+  float frequency = 1.0f;
+  float h = 0.0f;
+
+  for (uint32_t i = 0; i < octaves; i++) {
+    h += (SamplePerlin(seed, position * frequency) * 2.0f - 1.0f) * amplitude;
+
+    amplitude *= persistance;
+    frequency *= lacunarity;
+  }
+
+  return Amplify(h);
+}

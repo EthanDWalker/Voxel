@@ -186,7 +186,7 @@ void VulkanContext::StartUp() {
 
   VK_CHECK(vkCreateFence(VulkanContext::device, &fence_ci, nullptr, &fence));
 
-  ThreadPool::CreateThreadLocalData([=](const u32 id) {
+  ThreadPool::CreateThreadLocalData([=]() {
     VK_CHECK(vkCreateCommandPool(device, &command_pool_ci, nullptr, &command_pool));
 
     VK_CHECK(vkAllocateCommandBuffers(device, &command_buffer_ci, &command_buffer));
@@ -231,7 +231,7 @@ void VulkanContext::ShutDown() {
   vkDestroyFence(device, fence, nullptr);
   vkDestroyCommandPool(device, command_pool, nullptr);
 
-  ThreadPool::DestroyThreadLocalData([](const u32 id) {
+  ThreadPool::DestroyThreadLocalData([]() {
     vkDestroyFence(device, fence, nullptr);
     vkDestroyCommandPool(device, command_pool, nullptr);
   });

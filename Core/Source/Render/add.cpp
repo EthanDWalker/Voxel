@@ -32,14 +32,24 @@ u32 AddDirectionalLight(const DirectionalLight &dir_light) {
   return render_context->directional_light_count++;
 }
 
-void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const std::vector<Mesh> &mesh_arr,
-                    const u32 max_depth) {
+void VoxelizeChunk(const Vec3u32 index, const u32 max_depth) {
+  ZoneScoped;
+}
+
+void VoxelizeTerrain(const Vec2u32 extent, const Vec2f32 center, const f32 density, const i32 seed,
+                     const u32 max_depth) {
   ZoneScoped;
 
   SparseVoxelTree::TreeHeader *const header =
       (SparseVoxelTree::TreeHeader *const)render_context->voxel_tree.tree_header_host_buffer.host_address;
 
-  for (u32 depth = 1; depth < max_depth; depth++) {
+  TerrainAllocateInfo alloc_info{};
+  alloc_info.density = density;
+  alloc_info.extent = extent;
+  alloc_info.center = center;
+  alloc_info.seed = seed;
+
+  for (u32 depth = 1; depth < SparseVoxelTree::MAX_DEPTH; depth++) {
     const u32 page_offset = render_context->voxel_tree.branch_pages.size();
     const u32 new_page_offset = header->branch_count >> SparseVoxelTree::PAGE_SIZE_EXP;
 
@@ -47,7 +57,7 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
 
     VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
       {
-        cmd.BeginDebugPass("svo allocate transfer pass");
+        cmd.BeginDebugPass("svo mesh allocate transfer pass");
         VulkanSubPass<SubPassType::Transfer> transfer_pass;
         transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
             render_context->voxel_tree.empty_page_host_buffer);
@@ -90,22 +100,175 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
 
         cmd.BindSubPass(allocate_pass);
 
-        cmd.BeginRendering({}, nullptr, Vec2u32(1 << (max_depth * 2)), false);
-        cmd.BindPipeline(render_context->allocate_branch_pipeline);
+        cmd.BeginRendering({}, nullptr, Vec2u32(1 << (SparseVoxelTree::MAX_DEPTH * 2)), false);
+        cmd.BindPipeline(render_context->terrain_allocate_branch_pipeline);
         cmd.BindDescriptors({
-            render_context->voxelize_descriptor,
             render_context->voxel_tree.descriptor,
         });
 
-        AllocateInfo alloc_info;
         alloc_info.depth = depth;
-        alloc_info.leaf = (depth == (max_depth - 1));
+        alloc_info.leaf = (depth >= (max_depth - 1));
+
+        cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(TerrainAllocateInfo), &alloc_info);
+        cmd.Draw((extent.x * density) * (extent.y * density));
+
+        cmd.EndRendering();
+        cmd.EndDebugPass();
+      }
+
+      {
+        cmd.BeginDebugPass("svo allocate transfer to host");
+        VulkanSubPass<SubPassType::Transfer> transfer_pass;
+        transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
+            render_context->voxel_tree.tree_header_buffer);
+        transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
+            render_context->voxel_tree.tree_header_host_buffer);
+
+        cmd.BindSubPass(transfer_pass);
+
+        cmd.UploadBufferToBuffer(render_context->voxel_tree.tree_header_buffer,
+                                 render_context->voxel_tree.tree_header_host_buffer,
+                                 render_context->voxel_tree.tree_header_host_buffer.size);
+        cmd.EndDebugPass();
+      }
+    });
+  }
+
+  const u32 page_offset = render_context->voxel_tree.leaf_pages.size();
+  const u32 new_page_offset = header->leaf_count >> SparseVoxelTree::PAGE_SIZE_EXP;
+
+  render_context->voxel_tree.AllocateLeafPages(new_page_offset - page_offset);
+
+  VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
+    {
+      cmd.BeginDebugPass("svo allocate child mask transfer");
+      VulkanSubPass<SubPassType::Transfer> transfer_pass;
+      for (u32 i = page_offset; i <= new_page_offset; i++) {
+        transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
+            *render_context->voxel_tree.leaf_pages[i]);
+      }
+
+      cmd.BindSubPass(transfer_pass);
+
+      for (u32 i = page_offset; i <= new_page_offset; i++) {
+        cmd.FillBuffer(*render_context->voxel_tree.leaf_pages[i],
+                       render_context->voxel_tree.leaf_pages[i]->size, 0);
+      }
+      cmd.EndDebugPass();
+    }
+
+    {
+      cmd.BeginDebugPass("svo allocate child mask");
+      VulkanSubPass<SubPassType::Graphic> child_mask_pass;
+      child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(
+          render_context->voxel_tree.tree_header_buffer);
+
+      child_mask_pass.ReserveBufferDependencies(render_context->voxel_tree.branch_pages.size());
+      for (u32 i = 0; i < render_context->voxel_tree.branch_pages.size(); i++) {
+        child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(
+            *render_context->voxel_tree.branch_pages[i]);
+      }
+
+      child_mask_pass.ReserveBufferDependencies(render_context->voxel_tree.leaf_pages.size());
+      for (u32 i = 0; i < render_context->voxel_tree.leaf_pages.size(); i++) {
+        child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(
+            *render_context->voxel_tree.leaf_pages[i]);
+      }
+
+      cmd.BindSubPass(child_mask_pass);
+
+      cmd.BeginRendering({}, nullptr, Vec2u32(1 << (SparseVoxelTree::MAX_DEPTH * 2)), false);
+      cmd.BindPipeline(render_context->terrain_allocate_leaf_pipeline);
+      cmd.BindDescriptors({
+          render_context->voxel_tree.descriptor,
+      });
+
+      alloc_info.depth = max_depth - 1;
+      alloc_info.leaf = true;
+
+      cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(TerrainAllocateInfo), &alloc_info);
+      cmd.Draw((extent.x * density) * (extent.y * density));
+
+      cmd.EndRendering();
+      cmd.EndDebugPass();
+    }
+  });
+}
+
+void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const std::vector<Mesh> &mesh_arr,
+                    const u32 max_depth) {
+  ZoneScoped;
+
+  SparseVoxelTree::TreeHeader *const header =
+      (SparseVoxelTree::TreeHeader *const)render_context->voxel_tree.tree_header_host_buffer.host_address;
+
+  for (u32 depth = 1; depth < Core::SparseVoxelTree::MAX_DEPTH; depth++) {
+    const u32 page_offset = render_context->voxel_tree.branch_pages.size();
+    const u32 new_page_offset = header->branch_count >> SparseVoxelTree::PAGE_SIZE_EXP;
+
+    render_context->voxel_tree.AllocateBranchPages(new_page_offset - page_offset);
+
+    VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
+      {
+        cmd.BeginDebugPass("svo mesh allocate transfer pass");
+        VulkanSubPass<SubPassType::Transfer> transfer_pass;
+        transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
+            render_context->voxel_tree.empty_page_host_buffer);
+
+        transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
+            render_context->voxel_tree.tree_header_host_buffer);
+        transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
+            render_context->voxel_tree.tree_header_buffer);
+
+        for (u32 i = page_offset; i <= new_page_offset; i++) {
+          transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
+              *render_context->voxel_tree.branch_pages[i]);
+        }
+
+        cmd.BindSubPass(transfer_pass);
+
+        for (u32 i = page_offset; i <= new_page_offset; i++) {
+          cmd.UploadBufferToBuffer(render_context->voxel_tree.empty_page_host_buffer,
+                                   *render_context->voxel_tree.branch_pages[i],
+                                   render_context->voxel_tree.branch_pages[i]->size);
+        }
+
+        cmd.UploadBufferToBuffer(render_context->voxel_tree.tree_header_host_buffer,
+                                 render_context->voxel_tree.tree_header_buffer,
+                                 render_context->voxel_tree.tree_header_buffer.size);
+        cmd.EndDebugPass();
+      }
+
+      {
+        cmd.BeginDebugPass("svo allocate pass");
+        VulkanSubPass<SubPassType::Graphic> allocate_pass;
+        allocate_pass.AddDependency<DeviceResourceType::RWBuffer>(
+            render_context->voxel_tree.tree_header_buffer);
+
+        allocate_pass.ReserveBufferDependencies(render_context->voxel_tree.branch_pages.size());
+        for (u32 i = 0; i < render_context->voxel_tree.branch_pages.size(); i++) {
+          allocate_pass.AddDependency<DeviceResourceType::RWBuffer>(
+              *render_context->voxel_tree.branch_pages[i]);
+        }
+
+        cmd.BindSubPass(allocate_pass);
+
+        cmd.BeginRendering({}, nullptr, Vec2u32(1 << (Core::SparseVoxelTree::MAX_DEPTH * 2)), false);
+        cmd.BindPipeline(render_context->mesh_allocate_branch_pipeline);
+        cmd.BindDescriptors({
+            render_context->mesh_voxelize_descriptor,
+            render_context->voxel_tree.descriptor,
+        });
+
+        MeshAllocateInfo alloc_info;
+        alloc_info.depth = depth;
+        alloc_info.leaf = (depth >= (max_depth - 1));
 
         for (u32 i = 0; i < instance_data_arr.size(); i++) {
           alloc_info.instance_matrix = instance_data_arr[i].matrix;
           alloc_info.instance_index = i;
           alloc_info.albedo_index = mesh_arr[instance_data_arr[i].mesh_index].albedo_image_index;
-          cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
+          cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(MeshAllocateInfo), &alloc_info);
           cmd.Draw(mesh_arr[instance_data_arr[i].mesh_index].index_count / 3);
           cmd.ClearPushConstants();
         }
@@ -174,14 +337,14 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
 
       cmd.BindSubPass(child_mask_pass);
 
-      cmd.BeginRendering({}, nullptr, Vec2u32(1 << (max_depth * 2)), false);
-      cmd.BindPipeline(render_context->allocate_leaf_pipeline);
+      cmd.BeginRendering({}, nullptr, Vec2u32(1 << (Core::SparseVoxelTree::MAX_DEPTH * 2)), false);
+      cmd.BindPipeline(render_context->mesh_allocate_leaf_pipeline);
       cmd.BindDescriptors({
-          render_context->voxelize_descriptor,
+          render_context->mesh_voxelize_descriptor,
           render_context->voxel_tree.descriptor,
       });
 
-      AllocateInfo alloc_info;
+      MeshAllocateInfo alloc_info;
       alloc_info.depth = max_depth - 1;
       alloc_info.leaf = true;
 
@@ -190,7 +353,7 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
         alloc_info.instance_index = i;
         alloc_info.albedo_index = mesh_arr[instance_data_arr[i].mesh_index].albedo_image_index;
 
-        cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo), &alloc_info);
+        cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(MeshAllocateInfo), &alloc_info);
         cmd.Draw(mesh_arr[instance_data_arr[i].mesh_index].index_count / 3);
         cmd.ClearPushConstants();
       }
@@ -198,29 +361,11 @@ void VoxelizeMeshes(const std::vector<InstanceData> &instance_data_arr, const st
       cmd.EndRendering();
       cmd.EndDebugPass();
     }
-
-    {
-      cmd.BeginDebugPass("svo allocate child mask transfer to host");
-      VulkanSubPass<SubPassType::Compute> transition;
-      transition.ReserveBufferDependencies(render_context->voxel_tree.branch_pages.size());
-      for (u32 i = 0; i < render_context->voxel_tree.branch_pages.size(); i++) {
-        transition.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.branch_pages[i]);
-      }
-      transition.ReserveBufferDependencies(render_context->voxel_tree.leaf_pages.size());
-      for (u32 i = 0; i < render_context->voxel_tree.leaf_pages.size(); i++) {
-        transition.AddDependency<DeviceResourceType::Buffer>(*render_context->voxel_tree.leaf_pages[i]);
-      }
-
-      cmd.BindSubPass(transition);
-      cmd.EndDebugPass();
-    }
   });
 }
 
-void AddObject(const ObjectData &object) {
+void AddObject(const ObjectData &object, const u32 max_depth) {
   ZoneScoped;
-
-  const u32 max_depth = SparseVoxelTree::MAX_DEPTH;
 
   std::vector<Mesh> mesh_arr;
   mesh_arr.resize(object.mesh_data_arr.size());
@@ -245,8 +390,10 @@ void AddObject(const ObjectData &object) {
         ->Create(object.mesh_data_arr[i].index_count,
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-    render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(0, vertex_buffer_arr[i].get(), i);
-    render_context->voxelize_descriptor.Update<DeviceResourceType::Buffer>(1, index_buffer_arr[i].get(), i);
+    render_context->mesh_voxelize_descriptor.Update<DeviceResourceType::Buffer>(0, vertex_buffer_arr[i].get(),
+                                                                                i);
+    render_context->mesh_voxelize_descriptor.Update<DeviceResourceType::Buffer>(1, index_buffer_arr[i].get(),
+                                                                                i);
   }
 
   std::vector<std::unique_ptr<VulkanImage<ImageType::Planar>>> albedo_image_arr;
@@ -260,8 +407,8 @@ void AddObject(const ObjectData &object) {
     albedo_image_arr[i]->Create(object.material_data_arr[i].albedo_extent, VK_FORMAT_BC1_RGB_UNORM_BLOCK,
                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
-    render_context->voxelize_descriptor.Update<DeviceResourceType::SampledImage>(2, albedo_image_arr[i].get(),
-                                                                                 i);
+    render_context->mesh_voxelize_descriptor.Update<DeviceResourceType::SampledImage>(
+        2, albedo_image_arr[i].get(), i);
   }
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {

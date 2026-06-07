@@ -87,14 +87,13 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.SetNoDepthTest();
     pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
     pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-    pipeline_builder.AddDescriptorLayout(voxelize_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(mesh_voxelize_descriptor_layout);
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
-    pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo));
-    pipeline_builder.EnableConservativeRasterization();
-    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "voxelize.slang",
-                                std::filesystem::path(SHADER_DIR) / "allocate_branch.slang",
-                                std::filesystem::path(SHADER_DIR) / "voxelize.slang");
-    PipelineBuildManager::Build(pipeline_builder, allocate_branch_pipeline);
+    pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(MeshAllocateInfo));
+    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "mesh_allocate_branch.slang",
+                                std::filesystem::path(SHADER_DIR) / "mesh_allocate_branch.slang",
+                                std::filesystem::path(SHADER_DIR) / "mesh_allocate_branch.slang");
+    PipelineBuildManager::Build(pipeline_builder, mesh_allocate_branch_pipeline);
   }
 
   {
@@ -103,14 +102,41 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.SetNoDepthTest();
     pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
     pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-    pipeline_builder.AddDescriptorLayout(voxelize_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(mesh_voxelize_descriptor_layout);
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
-    pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(AllocateInfo));
-    pipeline_builder.EnableConservativeRasterization();
-    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "voxelize.slang",
-                                std::filesystem::path(SHADER_DIR) / "allocate_leaf.slang",
-                                std::filesystem::path(SHADER_DIR) / "voxelize.slang");
-    PipelineBuildManager::Build(pipeline_builder, allocate_leaf_pipeline);
+    pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(MeshAllocateInfo));
+    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "mesh_allocate_leaf.slang",
+                                std::filesystem::path(SHADER_DIR) / "mesh_allocate_leaf.slang",
+                                std::filesystem::path(SHADER_DIR) / "mesh_allocate_leaf.slang");
+    PipelineBuildManager::Build(pipeline_builder, mesh_allocate_leaf_pipeline);
+  }
+
+  {
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Graphic>();
+    pipeline_builder.Default();
+    pipeline_builder.SetNoDepthTest();
+    pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
+    pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+    pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
+    pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(TerrainAllocateInfo));
+    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "terrain_allocate_leaf.slang",
+                                std::filesystem::path(SHADER_DIR) / "terrain_allocate_leaf.slang",
+                                std::filesystem::path(SHADER_DIR) / "terrain_allocate_leaf.slang");
+    PipelineBuildManager::Build(pipeline_builder, terrain_allocate_leaf_pipeline);
+  }
+
+  {
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Graphic>();
+    pipeline_builder.Default();
+    pipeline_builder.SetNoDepthTest();
+    pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
+    pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+    pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
+    pipeline_builder.AddPushConstantRange(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(TerrainAllocateInfo));
+    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "terrain_allocate_branch.slang",
+                                std::filesystem::path(SHADER_DIR) / "terrain_allocate_branch.slang",
+                                std::filesystem::path(SHADER_DIR) / "terrain_allocate_branch.slang");
+    PipelineBuildManager::Build(pipeline_builder, terrain_allocate_branch_pipeline);
   }
 }
 
@@ -191,8 +217,9 @@ RenderContext::RenderContext(const RenderSpec &spec) {
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, spec.max_meshes);       // index
   DescriptorBuilder::Bind<DeviceResourceType::SampledImage>(nullptr, spec.max_meshes); // albedo
   DescriptorBuilder::Bind<DeviceResourceType::Sampler>(&albedo_sampler);               // sampler
-  DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout);
-  DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS, voxelize_descriptor_layout, voxelize_descriptor);
+  DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_ALL_GRAPHICS, mesh_voxelize_descriptor_layout);
+  DescriptorBuilder::BuildSet(VK_SHADER_STAGE_ALL_GRAPHICS, mesh_voxelize_descriptor_layout,
+                              mesh_voxelize_descriptor);
   DescriptorBuilder::Reset();
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {

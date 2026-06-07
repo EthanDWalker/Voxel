@@ -115,9 +115,6 @@ static const float SCALE = 0.01f;
 static const float INV_SCALE = 1.0f / SCALE;
 uint64_t PackIndirectLighting(const float3 data) {
   const uint32_t3 d = uint32_t3(data * INV_SCALE);
-  if (any(d != 0)) {
-    // printf("(%u %u %u) vs (%f %f %f)", d.x, d.y, d.z, data.x, data.y, data.z);
-  }
   return SumComponents(uint64_t3(uint32_t3(data * INV_SCALE)) << uint32_t3(43, 21, 0));
 }
 
@@ -126,9 +123,9 @@ float3 UnpackIndirectLighting(const uint64_t data) {
 }
 
 struct IndirectLightValue {
-  uint32_t occlusion_data;
-  float sample_count;
-  uint64_t lighting_data;
+  uint32_t occlusion_data = 0xFFFFFFFF;
+  float sample_count = 1.0f;
+  uint64_t lighting_data = 0;
 
   property bool in_shadow {
     get { return bool(occlusion_data >> 1); }
@@ -174,6 +171,7 @@ struct HashSet {
     }
 
     in_set = false;
+    IndirectLightValue value;
     return {};
   }
 };

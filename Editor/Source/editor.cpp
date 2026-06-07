@@ -3,10 +3,9 @@
 #include "Core/Render/commands.h"
 #include "Core/Render/context.h"
 #include "Core/Render/frame.h"
+#include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
-#include "Core/Util/Parse/object.h"
 #include "Core/Util/log.h"
-#include "Core/Util/terrain.h"
 #include "Core/Util/timer.h"
 #include "Core/input.h"
 #include "Core/window.h"
@@ -15,13 +14,16 @@ void Editor::StartUp() {
   SCOPED_TIMER("START UP")
   camera.Create(Core::render_context->main_image.GetVec2u32());
 
-  Core::ObjectData terrain_object;
-  Core::GenerateTerrainObject(4000, 1.0f, 832910, terrain_object);
+  constexpr u32 seed = 832910 *0;
+  constexpr u32 extent = 500;
 
-  Core::AddObject(terrain_object);
+  {
+    constexpr f32 density = 1.0f;
+    Core::VoxelizeTerrain(extent, 0, density, seed, Core::SparseVoxelTree::MAX_DEPTH);
+  }
 
   const Core::DirectionalLight dir_light = {
-      .direction = Normalize(Vec3f32(-0.6f, -1.0f, -0.0f) + 1e-3f),
+      .direction = Normalize(Vec3f32(-0.8f, -1.0f, -0.0f) + 1e-3f),
       .intesity = 8.0f,
       .color = Vec3f32(1.0f),
   };
@@ -88,7 +90,7 @@ void Editor::Run() {
       Core::Window::SetShouldClose(true);
 
     if (Core::InputContext::GetHeld(Core::Input::F)) {
-      camera.speed = 10.0f;
+      camera.speed = 50.0f;
     } else {
       camera.speed = Abs(Core::SparseVoxelTree::MAX_BOUND);
     }

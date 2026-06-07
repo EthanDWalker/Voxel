@@ -26,7 +26,7 @@ void FlushClearVolumeCmds() {
     render_context->clear_volume_cmds.clear();
   }
 
-  ThreadPool::QueueTask([local_cmds](u32 id) {
+  ThreadPool::QueueTask([local_cmds]() {
     SCOPED_TIMER("flush clear cmds");
     VulkanContext::Submit([local_cmds](VulkanCommandBuffer &cmd) {
       cmd.BeginDebugPass("clear volume cmds");

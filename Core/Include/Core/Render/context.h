@@ -51,8 +51,11 @@ struct RenderContext {
   VulkanPipeline<PipelineType::Compute> indirect_lighting_prepass_pipeline;
   VulkanPipeline<PipelineType::Compute> indirect_lighting_pipeline;
 
-  VulkanPipeline<PipelineType::Graphic> allocate_branch_pipeline;
-  VulkanPipeline<PipelineType::Graphic> allocate_leaf_pipeline;
+  VulkanPipeline<PipelineType::Graphic> mesh_allocate_branch_pipeline;
+  VulkanPipeline<PipelineType::Graphic> mesh_allocate_leaf_pipeline;
+
+  VulkanPipeline<PipelineType::Graphic> terrain_allocate_branch_pipeline;
+  VulkanPipeline<PipelineType::Graphic> terrain_allocate_leaf_pipeline;
 
   VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
@@ -77,8 +80,9 @@ struct RenderContext {
   VulkanDescriptorLayout mesh_descriptor_layout;
   VulkanDescriptor mesh_descriptor;
 
-  VulkanDescriptorLayout voxelize_descriptor_layout;
-  VulkanDescriptor voxelize_descriptor;
+  VulkanDescriptorLayout mesh_voxelize_descriptor_layout;
+  VulkanDescriptor mesh_voxelize_descriptor;
+
   VulkanSampler albedo_sampler;
 
   VulkanBuffer<BufferType::StagingBuffer> raycast_staging_buffer = "raycast staging buffer";

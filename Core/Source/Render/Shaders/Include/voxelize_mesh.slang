@@ -1,6 +1,25 @@
-#include "Include/common.slang"
+#pragma once
+
+#include "common.slang"
+#define VOXEL_TREE_READ_WRITE
+#define VOXEL_TREE_ATOMIC
 #define VOXEL_TREE_SET_BINDING 1
-#include "Include/voxel_tree.slang"
+#include "voxel_tree.slang"
+
+struct VoxelizeInfo {
+  float4 position : SV_Position;
+  float3 world_position : varying;
+  float16_t2 uv : varying;
+  float3 normal : varying;
+};
+
+struct MeshAllocateInfo {
+  float4x4 instance_matrix;
+  uint32_t depth;
+  uint32_t leaf;
+  uint32_t mesh_index;
+  uint32_t albedo_image_index;
+};
 
 [[vk::binding(0, 0)]]
 StructuredBuffer<Vertex> vertex_arr_arr[];
@@ -18,9 +37,10 @@ struct TriangleInfo {
 };
 
 [shader("vertex")]
-TriangleInfo VMain(const uint32_t triangle_id: SV_VertexID, const uniform AllocateInfo alloc_info) {
+TriangleInfo VMain(const uint32_t triangle_id: SV_VertexID, const uniform MeshAllocateInfo alloc_info) {
   TriangleInfo info;
   info.triangle_id = triangle_id;
+
   return info;
 }
 
@@ -49,7 +69,7 @@ float3x3 GetNormalMatrix(const float4x4 m) {
 [shader("geometry")]
 [maxvertexcount(3)]
 void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInfo> output_stream,
-           const uniform AllocateInfo alloc_info) {
+           const uniform MeshAllocateInfo alloc_info) {
   const uint32_t mesh_id = alloc_info.mesh_index;
 
   Vertex input[3];
@@ -61,7 +81,8 @@ void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInf
   const float4x4 instance_matrix = alloc_info.instance_matrix;
   const float3x3 normal_matrix = GetNormalMatrix(instance_matrix);
 
-  const float3 normal = normalize(cross(input[1].position - input[0].position, input[2].position - input[0].position));
+  const float3 normal =
+      normalize(cross(input[1].position - input[0].position, input[2].position - input[0].position));
   const float3 abs_normal = abs(normal);
 
   const Axis projection_axis = (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) ? Axis::X
@@ -72,7 +93,7 @@ void GMain(point TriangleInfo triangle_info[1], inout TriangleStream<VoxelizeInf
     VoxelizeInfo voxelize_info;
     voxelize_info.uv = float16_t2(input[i].uv);
     voxelize_info.world_position = mul(instance_matrix, float4(input[i].position, 1.0f)).xyz;
-    voxelize_info.normal = mul(normal_matrix, -normal);
+    voxelize_info.normal = input[i].normal;
 
     const float3 pos = (voxelize_info.world_position / (box_size / 2.0f));
     voxelize_info.position = float4((projection_axis == Axis::X)   ? pos.yz

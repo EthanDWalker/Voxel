@@ -5,6 +5,8 @@ static const uint32_t CHILD_PTR_MASK = 0x7FFFFFFF;
 static const uint32_t IS_LEAF_BIT_OFFSET = 31;
 static const uint32_t IS_LEAF_BIT = 0x80000000;
 
+static const uint32_t PTR_STACK_SIZE = 3;
+
 struct ChildPtrData {
   uint32_t data;
 
@@ -84,21 +86,6 @@ LeafNode UnpackLeafNode(const uint32_t data) {
 
   return node;
 }
-
-struct VoxelizeInfo {
-  float4 position : SV_Position;
-  float3 world_position : varying;
-  float16_t2 uv : varying;
-  float3 normal : varying;
-};
-
-struct AllocateInfo {
-  float4x4 instance_matrix;
-  uint32_t depth;
-  uint32_t leaf;
-  uint32_t mesh_index;
-  uint32_t albedo_image_index;
-};
 
 struct BaseTreeHeader<T>
     where T : IBuffer {
@@ -437,9 +424,8 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
 
   const LeafNode leaf_node = UnpackLeafNode(voxel_tree_leaf[page_index][page_offset].data);
   result.hit_color = leaf_node.color;
-  result.hit_normal = leaf_node.normal;
   result.leaf_ptr = ptr;
+  result.hit_normal = leaf_node.normal;
 }
 
 #endif
-

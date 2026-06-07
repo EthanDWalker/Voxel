@@ -1,8 +1,4 @@
-#include "Include/common.slang"
-#define VOXEL_TREE_ATOMIC
-#define VOXEL_TREE_READ_WRITE
-#define VOXEL_TREE_SET_BINDING 1
-#include "Include/voxel_tree.slang"
+#include "Include/voxelize_terrain.slang"
 
 void Allocate(const uint32_t3 index, const uint32_t depth, const bool leaf) {
   uint32_t ptr = GetLocalIndex(index, 0);
@@ -37,7 +33,7 @@ void Allocate(const uint32_t3 index, const uint32_t depth, const bool leaf) {
 }
 
 [shader("fragment")]
-void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
+void FMain(const TerrainVoxelizeInfo info, const uniform TerrainAllocateInfo alloc_info) {
   const uint32_t3 tree_index = GetTreeIndex(info.world_position);
   Allocate(tree_index, alloc_info.depth, alloc_info.leaf == 1);
 }

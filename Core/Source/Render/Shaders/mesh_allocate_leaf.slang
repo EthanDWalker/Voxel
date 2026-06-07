@@ -1,8 +1,5 @@
 #include "Include/common.slang"
-#define VOXEL_TREE_SET_BINDING 1
-#define VOXEL_TREE_ATOMIC
-#define VOXEL_TREE_READ_WRITE
-#include "Include/voxel_tree.slang"
+#include "Include/voxelize_mesh.slang"
 
 [[vk::binding(2, 0)]]
 Texture2D<float4> albedo_image[];
@@ -10,8 +7,13 @@ Texture2D<float4> albedo_image[];
 [[vk::binding(3, 0)]]
 SamplerState albedo_image_sampler;
 
+static const float4 SNOW_COLOR = float4(0.96f, 0.86f, 0.79f, 1.0f);
+static const float4 GRASS_COLOR = float4(0.08f, 0.43f, 0.08f, 1.0f);
+static const float4 STONE_COLOR = float4(136, 140, 141, 255) / 255.0f;
+static const float4 DIRT_COLOR = float4(137, 81, 41, 255) / 255.0f;
+
 [shader("fragment")]
-void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
+void FMain(const VoxelizeInfo info, const uniform MeshAllocateInfo alloc_info) {
   const float4 color =
       albedo_image[alloc_info.albedo_image_index].SampleLevel(albedo_image_sampler, info.uv, 0.0f);
   if (color.a == 0.0f)
@@ -30,7 +32,7 @@ void FMain(const VoxelizeInfo info, const uniform AllocateInfo alloc_info) {
         ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
 
     if (child_ptr_data.data == SENTINAL)
-      break;
+      return;
 
     const uint64_t ret = voxel_tree[page_index][page_offset].child_mask.or(uint64_t(1) << local_index);
 
