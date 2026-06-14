@@ -8,6 +8,15 @@ const u32 GPU_ALIGNMENT = 16;
 using Index = u32;
 using Instance = VkAccelerationStructureInstanceKHR;
 
+struct alignas(GPU_ALIGNMENT) ToneMapPushConstants {
+  f32 delta_time;
+};
+
+struct alignas(GPU_ALIGNMENT) FrameLuminanceData {
+  f32 acc_log_luminance;
+  u32 sample_count;
+};
+
 struct alignas(GPU_ALIGNMENT) ChunkAllocationInfo {
   Vec3u32 chunk_index;
   u32 lod;

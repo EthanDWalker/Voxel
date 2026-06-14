@@ -2,6 +2,7 @@
 #include "Core/Render/add.h"
 #include "Core/Render/commands.h"
 #include "Core/Render/context.h"
+#include "Core/Render/debug.h"
 #include "Core/Render/frame.h"
 #include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
@@ -11,20 +12,21 @@
 #include "Core/window.h"
 
 void Editor::StartUp() {
-  SCOPED_TIMER("START UP")
   camera.Create(Core::render_context->main_image.GetVec2u32());
 
-  constexpr u32 seed = 832910 *0;
-  constexpr u32 extent = 500;
+  constexpr u32 seed = 832910;
 
-  {
-    constexpr f32 density = 1.0f;
-    Core::VoxelizeTerrain(extent, 0, density, seed, Core::SparseVoxelTree::MAX_DEPTH);
+  for (u32 x = 0; x < 4; x++) {
+    for (u32 y = 0; y < 4; y++) {
+      for (u32 z = 0; z < 4; z++) {
+        Core::VoxelizeChunk(Vec3u32(x, y, z), seed, Core::SparseVoxelTree::MAX_DEPTH);
+      }
+    }
   }
 
   const Core::DirectionalLight dir_light = {
-      .direction = Normalize(Vec3f32(-0.8f, -1.0f, -0.0f) + 1e-3f),
-      .intesity = 8.0f,
+      .direction = Normalize(Vec3f32(-0.8f, -1.0f, -0.3f) + 1e-3f),
+      .intesity = 2.0f,
       .color = Vec3f32(1.0f),
   };
 
@@ -75,6 +77,10 @@ void Editor::Run() {
     }
 
     Core::Frame(camera);
+
+    if (Core::InputContext::GetHeld(Core::Input::B)) {
+      Core::DebugDrawChunkBoundaries();
+    }
 
     Core::EndFrame(resize);
 

@@ -32,21 +32,14 @@ u32 AddDirectionalLight(const DirectionalLight &dir_light) {
   return render_context->directional_light_count++;
 }
 
-void VoxelizeChunk(const Vec3u32 index, const u32 max_depth) {
-  ZoneScoped;
-}
-
-void VoxelizeTerrain(const Vec2u32 extent, const Vec2f32 center, const f32 density, const i32 seed,
-                     const u32 max_depth) {
+void VoxelizeChunk(const Vec3u32 index, const u32 seed, const u32 max_depth) {
   ZoneScoped;
 
   SparseVoxelTree::TreeHeader *const header =
       (SparseVoxelTree::TreeHeader *const)render_context->voxel_tree.tree_header_host_buffer.host_address;
 
-  TerrainAllocateInfo alloc_info{};
-  alloc_info.density = density;
-  alloc_info.extent = extent;
-  alloc_info.center = center;
+  ChunkAllocationInfo alloc_info{};
+  alloc_info.chunk_index = index;
   alloc_info.seed = seed;
 
   for (u32 depth = 1; depth < SparseVoxelTree::MAX_DEPTH; depth++) {
@@ -100,19 +93,17 @@ void VoxelizeTerrain(const Vec2u32 extent, const Vec2f32 center, const f32 densi
 
         cmd.BindSubPass(allocate_pass);
 
-        cmd.BeginRendering({}, nullptr, Vec2u32(1 << (SparseVoxelTree::MAX_DEPTH * 2)), false);
-        cmd.BindPipeline(render_context->terrain_allocate_branch_pipeline);
+        cmd.BindPipeline(render_context->chunk_allocate_pipeline);
         cmd.BindDescriptors({
             render_context->voxel_tree.descriptor,
         });
 
-        alloc_info.depth = depth;
-        alloc_info.leaf = (depth >= (max_depth - 1));
+        alloc_info.lod = depth;
+        alloc_info.alloc_leaf = (depth >= (max_depth - 1));
 
-        cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(TerrainAllocateInfo), &alloc_info);
-        cmd.Draw((extent.x * density) * (extent.y * density));
+        cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(ChunkAllocationInfo), &alloc_info);
+        cmd.Dispatch(Vec3u32(1) << ((SparseVoxelTree::MAX_DEPTH - 2) * 2));
 
-        cmd.EndRendering();
         cmd.EndDebugPass();
       }
 
@@ -177,19 +168,16 @@ void VoxelizeTerrain(const Vec2u32 extent, const Vec2f32 center, const f32 densi
 
       cmd.BindSubPass(child_mask_pass);
 
-      cmd.BeginRendering({}, nullptr, Vec2u32(1 << (SparseVoxelTree::MAX_DEPTH * 2)), false);
-      cmd.BindPipeline(render_context->terrain_allocate_leaf_pipeline);
+      cmd.BindPipeline(render_context->chunk_allocate_pipeline);
       cmd.BindDescriptors({
           render_context->voxel_tree.descriptor,
       });
 
-      alloc_info.depth = max_depth - 1;
-      alloc_info.leaf = true;
+      alloc_info.color = true;
 
-      cmd.PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(TerrainAllocateInfo), &alloc_info);
-      cmd.Draw((extent.x * density) * (extent.y * density));
+      cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(ChunkAllocationInfo), &alloc_info);
+      cmd.Dispatch(Vec3u32(1) << ((SparseVoxelTree::MAX_DEPTH - 2) * 2));
 
-      cmd.EndRendering();
       cmd.EndDebugPass();
     }
   });

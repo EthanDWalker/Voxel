@@ -98,7 +98,7 @@ float SamplePerlin(const int32_t seed, const float2 postion) {
   return lerp(xf0, xf1, ys) * 1.4247691104677813f;
 }
 
-float Amplify(const float h) { return h * h * (h > 0.7f ? h : 1.0f) * 25.0f; }
+float Amplify(const float h) { return h * h * (h > 0.7f ? h : 1.0f) * 20.0f; }
 
 float SampleNoise(const int32_t seed, const float2 position) {
   const uint32_t octaves = 4;
@@ -106,7 +106,7 @@ float SampleNoise(const int32_t seed, const float2 position) {
   const float lacunarity = 2.5f;
 
   float amplitude = 1.0f;
-  float frequency = 1.0f;
+  float frequency = 1.0f / 500.0f;
   float h = 0.0f;
 
   for (uint32_t i = 0; i < octaves; i++) {

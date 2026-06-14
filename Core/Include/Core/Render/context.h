@@ -19,7 +19,7 @@ struct RenderSpec {
   u32 max_directional_lights = 10;
   u32 max_raycasts = 10;
   u32 max_meshes = 10'000;
-  u32 max_average_rays_per_pixel = 2;
+  u32 max_average_rays_per_pixel = 1;
   u32 max_cached_indirect_lighting_per_pixel = 2;
 };
 
@@ -29,8 +29,6 @@ const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
 struct RenderContext {
   RenderSpec current_spec;
   VulkanSwapchain swapchain;
-  VulkanImage<ImageType::Planar> main_image;
-  VulkanImage<ImageType::Planar> beam_prepass_image;
 
   std::array<VulkanBuffer<BufferType::StagingBuffer>, VulkanSwapchain::FRAME_OVERLAP> frame_staging_buffer = {
       "frame staging buffer 0",
@@ -50,18 +48,33 @@ struct RenderContext {
   VulkanPipeline<PipelineType::Compute> clear_volume_pipeline;
   VulkanPipeline<PipelineType::Compute> indirect_lighting_prepass_pipeline;
   VulkanPipeline<PipelineType::Compute> indirect_lighting_pipeline;
+  VulkanPipeline<PipelineType::Compute> chunk_allocate_pipeline;
+  VulkanPipeline<PipelineType::Compute> tone_map_pipeline;
 
   VulkanPipeline<PipelineType::Graphic> mesh_allocate_branch_pipeline;
   VulkanPipeline<PipelineType::Graphic> mesh_allocate_leaf_pipeline;
 
-  VulkanPipeline<PipelineType::Graphic> terrain_allocate_branch_pipeline;
-  VulkanPipeline<PipelineType::Graphic> terrain_allocate_leaf_pipeline;
+  VulkanPipeline<PipelineType::Graphic> debug_chunk_boundaries_pipeline;
 
   VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
+  VulkanImage<ImageType::Planar> main_image;
+  VulkanImage<ImageType::Planar> beam_prepass_image;
+
+  std::array<VulkanBuffer<BufferType::StructuredBuffer, FrameLuminanceData>, VulkanSwapchain::FRAME_OVERLAP>
+      frame_luminance_data_buffer = {
+          "frame luminance data buffer 0",
+          "frame luminance data buffer 1",
+          "frame luminance data buffer 2",
+  };
+  VulkanDescriptorLayout frame_luminance_descriptor_layout;
+  std::array<VulkanDescriptor, VulkanSwapchain::FRAME_OVERLAP> frame_luminance_descriptor = {};
 
   VulkanDescriptorLayout camera_descriptor_layout;
   std::array<VulkanDescriptor, VulkanSwapchain::FRAME_OVERLAP> camera_descriptor = {};
+
+  VulkanDescriptorLayout swapchain_descriptor_layout;
+  std::array<VulkanDescriptor, VulkanSwapchain::FRAME_OVERLAP> swapchain_descriptor = {};
 
   VulkanDescriptorLayout light_descriptor_layout;
   VulkanDescriptor light_descriptor;

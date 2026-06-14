@@ -34,7 +34,7 @@ void VulkanSwapchain::Create(Vec2u32 extent) {
           .set_desired_present_mode(present_mode)
           .set_required_min_image_count(FRAME_OVERLAP)
           .set_desired_extent(extent.width, extent.height)
-          .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+          .add_image_usage_flags(usage)
           .build()
           .value();
 
@@ -91,7 +91,7 @@ void VulkanSwapchain::Recreate(Vec2u32 extent) {
           .set_required_min_image_count(FRAME_OVERLAP)
           .set_old_swapchain(obj)
           .set_desired_extent(extent.width, extent.height)
-          .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+          .add_image_usage_flags(usage)
           .build()
           .value();
 

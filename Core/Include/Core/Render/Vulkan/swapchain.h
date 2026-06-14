@@ -25,6 +25,7 @@ struct VulkanSwapchain {
   VkSemaphore render_semaphores[FRAME_OVERLAP];
   VkFence render_fences[FRAME_OVERLAP];
 
+  VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT;
   VkSwapchainKHR obj;
   VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
   VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;

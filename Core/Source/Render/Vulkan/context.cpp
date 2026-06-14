@@ -123,6 +123,8 @@ void VulkanContext::StartUp() {
   float_atomic_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
   float_atomic_features.shaderBufferFloat32AtomicAdd = true;
   float_atomic_features.shaderBufferFloat32Atomics = true;
+  float_atomic_features.shaderSharedFloat32AtomicAdd = true;
+  float_atomic_features.shaderSharedFloat32Atomics = true;
 
   vkb::PhysicalDevice vkb_physical_device =
       physical_device_selector.set_minimum_version(1, 3)

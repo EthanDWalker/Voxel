@@ -1,18 +1,31 @@
+#include "Core/Util/timer.h"
 #include "Core/boot.h"
 #include "editor.h"
 
 int main() {
-  Core::StartUp();
+  {
+    SCOPED_TIMER("core start up");
+    Core::StartUp();
+  }
 
   {
     Editor editor{};
 
-    editor.StartUp();
+    {
+      SCOPED_TIMER("editor start up");
+      editor.StartUp();
+    }
 
     editor.Run();
 
-    editor.ShutDown();
+    {
+      SCOPED_TIMER("shut down");
+      editor.ShutDown();
+    }
   }
 
-  Core::ShutDown();
+  {
+    SCOPED_TIMER("core shut down");
+    Core::ShutDown();
+  }
 }

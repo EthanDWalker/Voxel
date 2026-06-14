@@ -6,15 +6,8 @@
 
 namespace Core {
 
-struct DeviceHashSetKeyValuePair {
+struct DeviceHashSetKey {
   u32 key;
-  f32 sample_count;
-  // 21 bits r
-  // 22 bits g
-  // 21 bits b
-  // int stored * 0.05f
-  // allows for at least 20'000 samples
-  u64 lighting;
 };
 
 struct DeviceHashSetHeader {
@@ -22,11 +15,23 @@ struct DeviceHashSetHeader {
   u32 insertion_failures;
 };
 
-struct DeviceHashSetSwappedData {
-  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetKeyValuePair> set_buffer = "hash set buffer";
-  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetHeader> header_buffer = "hash set header buffer";
-  VulkanBuffer<BufferType::StructuredBuffer, u32> occlusion_data_buffer = "hash set occlusion data buffer";
+struct DeviceHashSetLightingData {
+  Vec3f32 acc_lighting;
+  f32 sample_count;
+};
 
+struct DeviceHashSetOcclusionData {
+  u32 data;
+};
+
+struct DeviceHashSetSwappedData {
+  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetKey> key_buffer = "hash set key buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetLightingData> lighting_data_buffer =
+      "hash set lighting data buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetOcclusionData> occlusion_data_buffer =
+      "hash set occlusion data buffer";
+
+  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetHeader> header_buffer = "hash set header buffer";
   VulkanBuffer<BufferType::StagingBuffer> header_staging_buffer = "hash set header staging buffer";
 
   VulkanDescriptor descriptor;
@@ -34,9 +39,15 @@ struct DeviceHashSetSwappedData {
 
 struct DeviceHashSet {
   static const u32 EMPTY_KEY = 0xFFFFFFFF; // max u32
-  static const u32 SET_BINDING = 1;
-  static const u32 BACK_SET_BINDING = 2;
-  static const u32 OCCLUSION_DATA_BINDING = 3;
+  static const u32 HEADER_BINDING = 0;
+
+  static const u32 KEY_BINDING = 1;
+  static const u32 BACK_KEY_BINDING = 2;
+
+  static const u32 LIGHTING_DATA_BINDING = 3;
+  static const u32 BACK_LIGHTING_DATA_BINDING = 4;
+
+  static const u32 OCCLUSION_DATA_BINDING = 5;
 
   void Create(const u32 size, const VkShaderStageFlags stage_flags);
   void Recreate(const u32 size, const VkShaderStageFlags stage_flags);

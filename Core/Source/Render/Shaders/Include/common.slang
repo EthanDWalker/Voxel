@@ -269,16 +269,16 @@ float SampleBeamImage(const uint32_t2 main_image_location, const RWTexture2D<flo
 float3 SampleEnvironmentColor(const float3 ray_dir, const DirectionalLight sun) {
   static const float3 GROUND_COLOR = float3(0.1f);
   static const float3 SKY_COLOR_HORIZON = float3(207, 236, 247) / 255.0f;
-  static const float3 SKY_COLOR_ZENITH = float3(160, 217, 239) / 255.0f;
+  static const float3 SKY_COLOR_ZENITH = float3(160, 217, 239) / 400.0f;
 
   const float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray_dir.y), 0.35f);
   const float3 sky_gradient = lerp(SKY_COLOR_HORIZON, SKY_COLOR_ZENITH, sky_gradient_t);
   const float ground_to_sky_t = smoothstep(-0.01f, 0.0f, ray_dir.y);
 
-  const float sun_focus = 300.0f;
-  const float sun = pow(max(0, dot(ray_dir, -sun.direction)), sun_focus) * sun.intensity;
+  const float sun_focus = 300.0f / sun.intensity;
+  const float sun_color = pow(max(0, dot(ray_dir, -sun.direction)), sun_focus);
   const float sun_mask = step(ground_to_sky_t, 1.0f);
 
-  const float3 sky_color = lerp(GROUND_COLOR, sky_gradient, ground_to_sky_t) + sun_mask * sun;
+  const float3 sky_color = lerp(GROUND_COLOR, sky_gradient, ground_to_sky_t) + sun_mask * sun_color * sun.intensity;
   return sky_color;
 }

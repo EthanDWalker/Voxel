@@ -5,7 +5,7 @@ static const uint32_t CHILD_PTR_MASK = 0x7FFFFFFF;
 static const uint32_t IS_LEAF_BIT_OFFSET = 31;
 static const uint32_t IS_LEAF_BIT = 0x80000000;
 
-static const uint32_t PTR_STACK_SIZE = 3;
+static const uint32_t PTR_STACK_SIZE = 1;
 
 struct ChildPtrData {
   uint32_t data;
@@ -49,17 +49,19 @@ struct LeafNode {
 // 6 bits b
 // 8 bit phi
 // 8 bit theta
-uint32_t PackLeafNode(const LeafNode node) {
+uint32_t PackLeafNode(LeafNode node) {
   uint32_t value = 0;
+
+  node.normal /= length(node.normal);
 
   value |= uint32_t(node.color.r * float((1 << 5) - 1)) << 27;
   value |= uint32_t(node.color.g * float((1 << 6) - 1)) << 21;
   value |= uint32_t(node.color.b * float((1 << 5) - 1)) << 16;
 
-  const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
+  const float phi_ratio = ((1 << 8) - 1) / PI;
   value |= uint32_t(acos(node.normal.z) * phi_ratio) << 8;
 
-  const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
+  const float theta_ratio = ((1 << 8) - 1) / (2.0f * PI);
   value |= uint32_t((atan2(node.normal.y, node.normal.x) + PI) * theta_ratio) << 0;
 
   return value;
@@ -172,7 +174,6 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
 static const float box_size = 1 << voxel_tree_header.box_size_exp;
 static const uint32_t grid_n = 1 << (voxel_tree_header.max_depth << 1);
 static const float voxel_size = FloatDivideBy2ToN(box_size, voxel_tree_header.max_depth << 1);
-static const float voxel_radius = sqrt(voxel_size * voxel_size * voxel_size * 0.5f);
 static const uint32_t initial_ptr_stack_depth = voxel_tree_header.max_depth - PTR_STACK_SIZE;
 static groupshared uint32_t ray_ptr_stack_mem[64][PTR_STACK_SIZE];
 static const uint32_t memory_index = spirv_asm {
@@ -212,7 +213,9 @@ uint32_t3 GetLocalOffset(const uint32_t3 index, const uint32_t depth) {
   return (index >> (((voxel_tree_header.max_depth - 1) - depth) << 1)) & 0x3;
 }
 
-float3 StepTreeRaySingle(const float3 position, const float3 ray_dir, const uint32_t level) {
+float3 StepTreeRaySingle(const float3 position, float3 ray_dir, const uint32_t level) {
+  ray_dir += 1e-3f;
+
   const uint32_t level_shift = ((voxel_tree_header.max_depth - 1) - level) * 2;
   const float scale = (1 << level_shift) * voxel_size;
 
@@ -380,20 +383,15 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
     const uint32_t3 index_diff = last_index ^ current_index;
     const uint32_t invalidated_stack_size = firstbithigh(index_diff.x | index_diff.y | index_diff.z) >> 1;
 
-    level = invalidated_stack_size < PTR_STACK_SIZE
-                ? initial_ptr_stack_depth + ((PTR_STACK_SIZE - 1) - invalidated_stack_size)
-                : 1;
-    ptr = invalidated_stack_size < PTR_STACK_SIZE
-              ? ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth]
-              : GetLocalIndex(current_index, 0);
-
-    if (invalidated_stack_size == 0) {
-      local_index = GetLocalIndex(current_index, level);
-
-      is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
+    if (invalidated_stack_size < PTR_STACK_SIZE) {
+      level = initial_ptr_stack_depth + ((PTR_STACK_SIZE - 1) - invalidated_stack_size);
+      ptr = ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth];
     } else {
-      TraverseTreeFromLevelPtr(ptr, level, node, is_empty, local_index, current_index);
+      level = 1;
+      ptr = GetLocalIndex(current_index, 0);
     }
+
+    TraverseTreeFromLevelPtr(ptr, level, node, is_empty, local_index, current_index);
 
     if (!is_empty || result.t > t_max) {
       break;

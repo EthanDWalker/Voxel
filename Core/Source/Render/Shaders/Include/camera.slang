@@ -1,5 +1,7 @@
 #pragma once
 
+static const float CAMERA_EXPOSURE = 1.6f;
+
 struct Camera {
   float4x4 projection;
   float4x4 view;

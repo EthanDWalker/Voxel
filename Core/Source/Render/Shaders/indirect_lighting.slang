@@ -1,10 +1,8 @@
 #include "Include/common.slang"
 #define VOXEL_TREE_SET_BINDING 2
 #include "Include/camera.slang"
-#include "Include/voxel_tree.slang"
-#define HASH_SET_ATOMIC
-#define HASH_SET_SET_BINDING 4
 #include "Include/hash_set.slang"
+#include "Include/voxel_tree.slang"
 
 [[vk::binding(0, 0)]]
 RWTexture2D<float4> image;
@@ -13,11 +11,18 @@ RWTexture2D<float> beam_image;
 
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
-[[vk::binding(1, 1)]]
-ConstantBuffer<Camera> last_camera;
 
 [[vk::binding(0, 3)]]
 CountedBuffer<DirectionalLight> directional_light_arr;
+
+[[vk::binding(HASH_SET_HEADER_BINDING, 4)]]
+RWStructuredBuffer<HashSetHeader> hash_set_header;
+
+[[vk::binding(HASH_SET_KEY_BINDING, 4)]]
+StructuredBuffer<HashSetKey> hash_set_key_arr;
+
+[[vk::binding(HASH_SET_LIGHTING_DATA_BINDING, 4)]]
+RWStructuredBuffer<AtomicLightingData> lighting_data_arr;
 
 [[vk::binding(0, 5)]]
 CountedBuffer<IndirectLightingRayDispatch> ray_dispatch_arr;
@@ -90,7 +95,7 @@ float3 CastRay(float3 origin, float3 direction, uint32_t seed, float weight, con
                                res.hit_level);
     seed = Hash(seed ^ (res.leaf_ptr) ^ (i * 4312u));
     direction = CosineWeightedHemisphere(res.hit_normal, Random2(seed));
-    weight = dot(res.hit_normal, direction) / PI;
+    weight = dot(res.hit_normal, direction);
   }
 }
 
@@ -113,17 +118,18 @@ void CMain(const uint32_t dispatch_id: SV_DispatchThreadID, const uniform uint32
 
   const uint32_t seed = Hash(leaf_ptr ^ (frame_number * 9781u) ^ (dispatch_id.x * dispatch_id.x * 32197u));
   const float3 indirect_lighting_dir = CosineWeightedHemisphere(normal, Random2(seed));
-  const float weight = dot(normal, indirect_lighting_dir) / PI;
+  const float weight = dot(normal, indirect_lighting_dir);
 
-  const uint32_t max_bounces = 0;
+  const uint32_t max_bounces = 2;
   const float3 indirect_light = CastRay(ray_origin, indirect_lighting_dir, seed, weight, max_bounces);
 
-  bool in_set;
-  const uint32_t hash_set_index = hash_set.Find(leaf_ptr, in_set);
-  if (!in_set) {
+  const Optional<uint32_t> hash_set_index = HashSetFind(leaf_ptr, hash_set_key_arr, hash_set_header);
+  if (!hash_set_index.hasValue) {
     return;
   }
 
-  hash_set.set[hash_set_index].sample_count += 1.0f;
-  hash_set.set[hash_set_index].lighting += PackIndirectLighting(indirect_light);
+  lighting_data_arr[hash_set_index.value].sample_count += 1.0f;
+  lighting_data_arr[hash_set_index.value].acc_lighting_r += indirect_light.r;
+  lighting_data_arr[hash_set_index.value].acc_lighting_g += indirect_light.g;
+  lighting_data_arr[hash_set_index.value].acc_lighting_b += indirect_light.b;
 }

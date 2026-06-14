@@ -1,49 +1,70 @@
 #pragma once
 #include "common.slang"
 
-#ifndef HASH_SET_SET_BINDING
-#error "must define HASH_SET_SET_BINDING set binding"
-#define HASH_SET_SET_BINDING -1
-#endif
-
-struct HashSetHeaderData {
+struct HashSetHeader {
   uint32_t size;
   Atomic<uint32_t> insertion_failure;
 };
 
-struct AtomicHashSetHeader {
-  RWStructuredBuffer<HashSetHeaderData> data;
+/*
+  static const u32 HEADER_BINDING = 0;
 
-  property uint32_t size {
-    get { return data[0].size; }
-  };
+  static const u32 KEY_BINDING = 1;
+  static const u32 BACK_KEY_BINDING = 2;
 
-  void LogInsertionFailure() { data[0].insertion_failure.increment(); }
+  static const u32 LIGHTING_DATA_BINDING = 3;
+  static const u32 BACK_LIGHTING_DATA_BINDING = 4;
+
+  static const u32 OCCLUSION_DATA_BINDING = 5;
+*/
+
+struct LightingData {
+  float3 acc_lighting = 0.0f;
+  float sample_count = 0.0f;
 };
 
-struct HashSetHeader {
-  StructuredBuffer<HashSetHeaderData> data;
+struct AtomicLightingData {
+  Atomic<float> acc_lighting_r;
+  Atomic<float> acc_lighting_g;
+  Atomic<float> acc_lighting_b;
+  Atomic<float> sample_count;
+};
 
-  property uint32_t size {
-    get { return data[0].size; }
+struct OcclusionData {
+  uint32_t data;
+
+  property bool in_shadow {
+    get { return bool(data >> 1); }
+  };
+  property bool null {
+    get { return data == 0; }
   };
 };
 
-#ifdef HASH_SET_ATOMIC
-[[vk::binding(0, HASH_SET_SET_BINDING)]]
-AtomicHashSetHeader hash_set_header;
-[[vk::binding(3, HASH_SET_SET_BINDING)]]
-RWStructuredBuffer<Atomic<uint32_t>> occlusion_data;
-#else
-[[vk::binding(0, HASH_SET_SET_BINDING)]]
-HashSetHeader hash_set_header;
-[[vk::binding(3, HASH_SET_SET_BINDING)]]
-StructuredBuffer<uint32_t> occlusion_data;
-#endif
+struct AtomicOcclusionData {
+  Atomic<uint32_t> data;
+};
+
+struct HashSetKey {
+  uint32_t key;
+};
+
+struct AtomicHashSetKey {
+  Atomic<uint32_t> key;
+};
+
+static const uint32_t HASH_SET_HEADER_BINDING = 0;
+
+static const uint32_t HASH_SET_KEY_BINDING = 1;
+static const uint32_t HASH_SET_LAST_KEY_BINDING = 2;
+
+static const uint32_t HASH_SET_LIGHTING_DATA_BINDING = 3;
+static const uint32_t HASH_SET_LAST_LIGHTING_DATA_BINDING = 4;
+
+static const uint32_t HASH_SET_OCCLUSION_DATA_BINDING = 5;
 
 static const uint32_t EMPTY_KEY = 0xFFFFFFFF;
 static const uint32_t MAX_DRIFT = 100;
-static const float ALPHA = 0.005f;
 
 uint32_t Hash(uint32_t a) {
   a = (a ^ 61) ^ (a >> 16);
@@ -54,136 +75,57 @@ uint32_t Hash(uint32_t a) {
   return a;
 }
 
-#ifdef HASH_SET_ATOMIC
-struct AtomicHashSet {
-  struct AtomicKeyValuePair {
-    Atomic<uint32_t> key;
-    Atomic<float> sample_count;
-    Atomic<uint64_t> lighting;
-  };
+Optional<uint32_t> HashSetFind(const uint32_t id, StructuredBuffer<HashSetKey> key_buffer,
+                               RWStructuredBuffer<HashSetHeader> hash_set_header) {
+  const uint32_t hash = Hash(id);
 
-  RWStructuredBuffer<AtomicKeyValuePair> set;
+  for (uint32_t i = 0; i < MAX_DRIFT; i++) {
+    const uint32_t index = (hash + i) % hash_set_header[0].size;
+    const uint32_t ret = key_buffer[index].key;
 
-  uint32_t Find(const uint32_t id, out bool in_set) {
-    const uint32_t hash = Hash(id);
-    in_set = false;
-
-    for (uint32_t i = 0; i < MAX_DRIFT; i++) {
-      const uint32_t index = (hash + i) % hash_set_header.size;
-      const uint32_t ret = set[index].key.load();
-
-      // assumes we do the shadow pass first which works in this case
-      if (ret == id) {
-        in_set = true;
-        return index;
-      } else if (ret == EMPTY_KEY) {
-        return 0;
-      }
+    if (ret == id) {
+      return index;
+    } else if (ret == EMPTY_KEY) {
+      return none;
     }
-
-    return 0;
   }
 
-  uint32_t FindAndInitialize(const uint32_t id, out bool initialized, out bool insertion_failiure) {
-    const uint32_t hash = Hash(id);
-    initialized = false;
-    insertion_failiure = false;
-
-    for (uint32_t i = 0; i < MAX_DRIFT; i++) {
-      const uint32_t index = (hash + i) % hash_set_header.size;
-      const uint32_t ret = set[index].key.compareExchange(EMPTY_KEY, id);
-
-      // assumes we do the shadow pass first which works in this case
-      if (ret == EMPTY_KEY) {
-        set[index].lighting.add((0xFFFFFFFF - EMPTY_KEY) + 1);
-        set[index].sample_count.store(0.0f);
-        initialized = true;
-        return index;
-      } else if (ret == id) {
-        return index;
-      }
-    }
-
-    insertion_failiure = true;
-    hash_set_header.LogInsertionFailure();
-    return false;
-  }
-};
-#endif
-
-static const float SCALE = 0.01f;
-static const float INV_SCALE = 1.0f / SCALE;
-uint64_t PackIndirectLighting(const float3 data) {
-  const uint32_t3 d = uint32_t3(data * INV_SCALE);
-  return SumComponents(uint64_t3(uint32_t3(data * INV_SCALE)) << uint32_t3(43, 21, 0));
+  return none;
 }
 
-float3 UnpackIndirectLighting(const uint64_t data) {
-  return ((data >> uint32_t3(43, 21, 0)) & uint32_t3(0x1FFFF, 0x3FFFF, 0x1FFFF)) * SCALE;
+Optional<uint32_t> HashSetFind(const uint32_t id, StructuredBuffer<HashSetKey> key_buffer,
+                               StructuredBuffer<HashSetHeader> hash_set_header) {
+  const uint32_t hash = Hash(id);
+
+  for (uint32_t i = 0; i < MAX_DRIFT; i++) {
+    const uint32_t index = (hash + i) % hash_set_header[0].size;
+    const uint32_t ret = key_buffer[index].key;
+
+    if (ret == id) {
+      return index;
+    } else if (ret == EMPTY_KEY) {
+      return none;
+    }
+  }
+
+  return none;
 }
 
-struct IndirectLightValue {
-  uint32_t occlusion_data = 0xFFFFFFFF;
-  float sample_count = 1.0f;
-  uint64_t lighting_data = 0;
+Optional<uint32_t> HashSetFindOrInitialize(const uint32_t id, RWStructuredBuffer<AtomicHashSetKey> key_buffer,
+                                           RWStructuredBuffer<HashSetHeader> hash_set_header) {
+  const uint32_t hash = Hash(id);
 
-  property bool in_shadow {
-    get { return bool(occlusion_data >> 1); }
-  };
+  for (uint32_t i = 0; i < MAX_DRIFT; i++) {
+    const uint32_t index = (hash + i) % hash_set_header[0].size;
+    const uint32_t ret = key_buffer[index].key.compareExchange(EMPTY_KEY, id);
 
-  property float3 indirect_light {
-    get { return UnpackIndirectLighting(lighting_data) / sample_count; }
-  };
-};
-
-struct HashSet {
-  struct KeyValuePair {
-    uint32_t key;
-    float sample_count;
-    uint64_t lighting_data;
-  };
-
-  StructuredBuffer<KeyValuePair> set;
-
-  IndirectLightValue GetId(const uint32_t id, out bool in_set) {
-    const uint32_t hash = Hash(id);
-
-    for (uint32_t i = 0; i < MAX_DRIFT; i++) {
-      const uint32_t index = (hash + i) % hash_set_header.size;
-      const uint32_t ret = set[index].key;
-
-      if (ret == id) {
-        in_set = true;
-        IndirectLightValue value;
-        value.lighting_data = set[index].lighting_data;
-        value.sample_count = set[index].sample_count;
-#ifdef HASH_SET_ATOMIC
-        // dont use index from last frame to index into this frame
-        value.occlusion_data = 0;
-#else
-        value.occlusion_data = occlusion_data[index];
-#endif
-
-        return value;
-      } else if (ret == EMPTY_KEY) {
-        break;
-      }
+    if (ret == EMPTY_KEY) {
+      return index;
+    } else if (ret == id) {
+      return index;
     }
-
-    in_set = false;
-    IndirectLightValue value;
-    return {};
   }
-};
 
-#ifdef HASH_SET_ATOMIC
-[[vk::binding(1, HASH_SET_SET_BINDING)]]
-AtomicHashSet hash_set;
-[[vk::binding(2, HASH_SET_SET_BINDING)]]
-HashSet last_hash_set;
-#else
-[[vk::binding(1, HASH_SET_SET_BINDING)]]
-HashSet hash_set;
-[[vk::binding(2, HASH_SET_SET_BINDING)]]
-HashSet last_hash_set;
-#endif
+  hash_set_header[0].insertion_failure.increment();
+  return none;
+}
