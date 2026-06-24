@@ -12,7 +12,6 @@ struct DeviceHashSetKey {
 
 struct DeviceHashSetHeader {
   u32 size;
-  u32 insertion_failures;
 };
 
 struct DeviceHashSetLightingData {
@@ -20,16 +19,12 @@ struct DeviceHashSetLightingData {
   f32 sample_count;
 };
 
-struct DeviceHashSetOcclusionData {
-  u32 data;
-};
-
 struct DeviceHashSetSwappedData {
   VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetKey> key_buffer = "hash set key buffer";
-  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetLightingData> lighting_data_buffer =
-      "hash set lighting data buffer";
-  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetOcclusionData> occlusion_data_buffer =
-      "hash set occlusion data buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetLightingData> diffuse_data_buffer =
+      "hash set diffuse data buffer";
+  VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetLightingData> specular_data_buffer =
+      "hash set specular data buffer";
 
   VulkanBuffer<BufferType::StructuredBuffer, DeviceHashSetHeader> header_buffer = "hash set header buffer";
   VulkanBuffer<BufferType::StagingBuffer> header_staging_buffer = "hash set header staging buffer";
@@ -44,10 +39,11 @@ struct DeviceHashSet {
   static const u32 KEY_BINDING = 1;
   static const u32 BACK_KEY_BINDING = 2;
 
-  static const u32 LIGHTING_DATA_BINDING = 3;
-  static const u32 BACK_LIGHTING_DATA_BINDING = 4;
+  static const u32 DIFFUSE_DATA_BINDING = 3;
+  static const u32 BACK_DIFFUSE_DATA_BINDING = 4;
 
-  static const u32 OCCLUSION_DATA_BINDING = 5;
+  static const u32 SPECULAR_DATA_BINDING = 5;
+  static const u32 BACK_SPECULAR_DATA_BINDING = 6;
 
   void Create(const u32 size, const VkShaderStageFlags stage_flags);
   void Recreate(const u32 size, const VkShaderStageFlags stage_flags);

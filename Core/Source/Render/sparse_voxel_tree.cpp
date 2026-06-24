@@ -3,6 +3,7 @@
 #include "Core/Render/Vulkan/command_buffer.h"
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/descriptors.h"
+#include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/Vulkan/submission_pass.h"
 #include "Core/Render/types.h"
 #include <memory>
@@ -28,18 +29,13 @@ SparseVoxelTree::SparseVoxelTree() {
 
   tree_header_host_buffer.Create(sizeof(TreeHeader));
 
-  empty_page_host_buffer.Create(sizeof(BranchNode) * PAGE_SIZE);
-
-  for (u32 i = 0; i < PAGE_SIZE; i++) {
-    ((BranchNode *)empty_page_host_buffer.host_address)[i] = {
-        .child_mask = 0,
-        .child_ptr = SENTINAL,
-    };
-  }
+  material_buffer.Create(MAX_MATERIALS,
+                         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // tree
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // tree leafs
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&tree_header_buffer);
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&material_buffer);
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS,
                                  descriptor_layout);
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS, descriptor_layout,
@@ -61,13 +57,36 @@ SparseVoxelTree::SparseVoxelTree() {
       ->Create(1 << PAGE_SIZE_EXP, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
   descriptor.Update<DeviceResourceType::Buffer>(TREE_LEAF_BUFFER_BINDING, leaf_pages.back().get(), 0);
 
+  {
+    Material torch_material{};
+    torch_material.rough = 0.0f;
+    torch_material.emmisive = 3.0f;
+    torch_material.metallic = 0.0f;
+    torch_material.reflect = 0.25f;
+    torch_material.albedo = Vec4f32(1.0f, 0.7f, 0.0f, 1.0f);
+    material_arr.emplace_back(torch_material);
+  }
+
+  {
+    Material stone_material{};
+    stone_material.rough = 0.95f;
+    stone_material.emmisive = 0.0f;
+    stone_material.metallic = 0.0f;
+    stone_material.reflect = 0.25f;
+    stone_material.albedo = Vec4f32(0.5333333333f, 0.5490196078f, 0.5529411765f, 1.0f);
+    material_arr.emplace_back(stone_material);
+  }
+
+  VulkanBuffer<BufferType::StagingBuffer> material_staging_buffer = "material staging buffer";
+  material_staging_buffer.Create(sizeof(Material) * material_arr.size());
+  memcpy(material_staging_buffer.host_address, material_arr.data(), material_arr.size() * sizeof(Material));
+
   memcpy(tree_header_host_buffer.host_address, &header, sizeof(TreeHeader));
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     cmd.BeginDebugPass("sparse voxel tree init");
     VulkanSubPass<SubPassType::Transfer> transfer_pass;
     transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(tree_header_host_buffer);
-    transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(empty_page_host_buffer);
     transfer_pass.AddDependency<DeviceResourceType::TransferDst>(tree_header_buffer);
     for (u32 i = 0; i < branch_pages.size(); i++) {
       transfer_pass.AddDependency<DeviceResourceType::TransferDst>(*branch_pages[i]);
@@ -75,25 +94,27 @@ SparseVoxelTree::SparseVoxelTree() {
     for (u32 i = 0; i < leaf_pages.size(); i++) {
       transfer_pass.AddDependency<DeviceResourceType::TransferDst>(*leaf_pages[i]);
     }
+    transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(material_staging_buffer);
+    transfer_pass.AddDependency<DeviceResourceType::TransferDst>(material_buffer);
 
     cmd.BindSubPass(transfer_pass);
 
     cmd.UploadBufferToBuffer(tree_header_host_buffer, tree_header_buffer, sizeof(TreeHeader));
     for (u32 i = 0; i < branch_pages.size(); i++) {
-      cmd.UploadBufferToBuffer(empty_page_host_buffer, *branch_pages[i], branch_pages[i]->size);
+      cmd.FillBuffer(*branch_pages[i], branch_pages[i]->size, 0);
     }
     for (u32 i = 0; i < leaf_pages.size(); i++) {
       cmd.FillBuffer(*leaf_pages[i], leaf_pages[i]->size, 0);
     }
+    material_buffer.Append(cmd, material_staging_buffer, material_arr.size());
     cmd.EndDebugPass();
   });
 }
 
-void SparseVoxelTree::AllocateBranchPages(const u32 count) {
+void SparseVoxelTree::ResizeBranch(const u32 count) {
   ZoneScoped;
-  const u32 page_offset = branch_pages.size();
-  const u32 new_page_offset = page_offset + count;
-  for (u32 i = page_offset; i <= new_page_offset; i++) {
+  const u32 new_page_count = count >> PAGE_SIZE_EXP;
+  for (u32 i = branch_pages.size(); i <= new_page_count; i++) {
     branch_pages
         .emplace_back(
             std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>("branch page buffer"))
@@ -103,11 +124,10 @@ void SparseVoxelTree::AllocateBranchPages(const u32 count) {
   }
 }
 
-void SparseVoxelTree::AllocateLeafPages(const u32 count) {
+void SparseVoxelTree::ResizeLeaf(const u32 count) {
   ZoneScoped;
-  const u32 page_offset = leaf_pages.size();
-  const u32 new_page_offset = page_offset + count;
-  for (u32 i = page_offset; i <= new_page_offset; i++) {
+  const u32 new_page_count = count >> PAGE_SIZE_EXP;
+  for (u32 i = leaf_pages.size(); i <= new_page_count; i++) {
     leaf_pages
         .emplace_back(
             std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, LeafNode>>("leaf page buffer"))

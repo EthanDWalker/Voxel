@@ -1,18 +1,9 @@
 #pragma once
 
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
-static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
-static const uint32_t SENTINAL = 0xFFFFFFFF;
+static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 0;
 
 static const float PI = 3.14159f;
-
-enum Axis {
-  X,
-  Y,
-  Z,
-};
-
-typedef uint32_t Index;
 
 struct DirectionalLight {
   float3 direction;
@@ -41,44 +32,6 @@ struct RWDispatchCommand {
   Atomic<uint32_t> total_y;
   Atomic<uint32_t> total_z;
 };
-
-struct Vertex {
-  uint64_t position_data;
-  uint16_t normal_data;
-  uint16_t _p0;
-  uint32_t uv_data;
-
-  property float3 position {
-    get { return f16tof32(uint32_t3(position_data >> uint32_t3(32, 16, 0)) & 0xFFFF); }
-    set { position_data = SumComponents(uint64_t3(f32tof16(newValue)) << uint32_t3(32, 16, 0)); }
-  };
-
-  property float3 normal {
-    get {
-      const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
-      const float theta = (((normal_data >> 0) & 0xFF) / theta_ratio) - PI;
-
-      const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
-      const float phi = (((normal_data >> 8) & 0xFF) / phi_ratio);
-
-      return normalize(float3(cos(phi), sin(phi) * sin(theta), sin(phi) * cos(theta)));
-    }
-    set {
-      normal_data = 0;
-
-      const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
-      normal_data |= uint16_t((atan2(newValue.y, newValue.x) + PI) * theta_ratio) << 0;
-
-      const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
-      normal_data |= uint16_t(acos(newValue.z) * phi_ratio) << 8;
-    }
-  };
-
-  property float2 uv {
-    get { return f16tof32((uv_data >> uint32_t2(0, 16)) & 0xFFFF); }
-    set { uv_data = (uint32_t)SumComponents(asuint(f32tof16(newValue)) << uint32_t2(0, 16)); }
-  };
-}
 
 interface IBuffer {
   T Load<T, let I : uint32_t>();
@@ -266,7 +219,7 @@ float SampleBeamImage(const uint32_t2 main_image_location, const RWTexture2D<flo
   return t;
 }
 
-float3 SampleEnvironmentColor(const float3 ray_dir, const DirectionalLight sun) {
+float3 SampleEnvironmentColor(const float3 ray_dir) {
   static const float3 GROUND_COLOR = float3(0.1f);
   static const float3 SKY_COLOR_HORIZON = float3(207, 236, 247) / 255.0f;
   static const float3 SKY_COLOR_ZENITH = float3(160, 217, 239) / 400.0f;
@@ -275,10 +228,6 @@ float3 SampleEnvironmentColor(const float3 ray_dir, const DirectionalLight sun) 
   const float3 sky_gradient = lerp(SKY_COLOR_HORIZON, SKY_COLOR_ZENITH, sky_gradient_t);
   const float ground_to_sky_t = smoothstep(-0.01f, 0.0f, ray_dir.y);
 
-  const float sun_focus = 300.0f / sun.intensity;
-  const float sun_color = pow(max(0, dot(ray_dir, -sun.direction)), sun_focus);
-  const float sun_mask = step(ground_to_sky_t, 1.0f);
-
-  const float3 sky_color = lerp(GROUND_COLOR, sky_gradient, ground_to_sky_t) + sun_mask * sun_color * sun.intensity;
+  const float3 sky_color = lerp(GROUND_COLOR, sky_gradient, ground_to_sky_t);
   return sky_color;
 }

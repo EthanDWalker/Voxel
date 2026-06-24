@@ -5,7 +5,18 @@ static const uint32_t CHILD_PTR_MASK = 0x7FFFFFFF;
 static const uint32_t IS_LEAF_BIT_OFFSET = 31;
 static const uint32_t IS_LEAF_BIT = 0x80000000;
 
-static const uint32_t PTR_STACK_SIZE = 1;
+static const uint32_t PTR_STACK_SIZE = 3;
+
+struct VoxelVolume {
+  uint32_t3 min_tree_index;
+  uint32_t depth;
+  uint32_t3 max_tree_index;
+  uint32_t material_index;
+
+  bool Contains(const uint32_t3 tree_index) {
+    return all(tree_index >= min_tree_index && tree_index < max_tree_index);
+  }
+};
 
 struct ChildPtrData {
   uint32_t data;
@@ -26,68 +37,22 @@ struct BranchNode {
   ChildPtrData child_ptr_data;
 }
 
+struct Material {
+  float4 albedo;
+  float rough;
+  float metallic;
+  float emmisive;
+  float reflect;
+};
+
 struct AtomicBranchNode {
   Atomic<uint64_t> child_mask;
   Atomic<uint32_t> child_ptr_data;
 };
 
-struct PackedLeafNode {
-  uint32_t data;
-};
-
-struct AtomicPackedLeafNode {
-  Atomic<uint32_t> data;
-};
-
 struct LeafNode {
-  float4 color;
-  float3 normal;
+  uint16_t material_index;
 };
-
-// 5 bits r
-// 6 bits g
-// 6 bits b
-// 8 bit phi
-// 8 bit theta
-uint32_t PackLeafNode(LeafNode node) {
-  uint32_t value = 0;
-
-  node.normal /= length(node.normal);
-
-  value |= uint32_t(node.color.r * float((1 << 5) - 1)) << 27;
-  value |= uint32_t(node.color.g * float((1 << 6) - 1)) << 21;
-  value |= uint32_t(node.color.b * float((1 << 5) - 1)) << 16;
-
-  const float phi_ratio = ((1 << 8) - 1) / PI;
-  value |= uint32_t(acos(node.normal.z) * phi_ratio) << 8;
-
-  const float theta_ratio = ((1 << 8) - 1) / (2.0f * PI);
-  value |= uint32_t((atan2(node.normal.y, node.normal.x) + PI) * theta_ratio) << 0;
-
-  return value;
-}
-
-LeafNode UnpackLeafNode(const uint32_t data) {
-  LeafNode node;
-
-  const float theta_ratio = ((1 << 8) - 1) * (1.0f / (2.0f * PI));
-  const float theta = (((data >> 0) & 0xFF) / theta_ratio) - PI;
-
-  const float phi_ratio = ((1 << 8) - 1) * (1.0f / PI);
-  const float phi = (((data >> 8) & 0xFF) / phi_ratio);
-
-  node.normal.z = cos(phi);
-  node.normal.y = sin(phi) * sin(theta);
-  node.normal.x = sin(phi) * cos(theta);
-
-  node.normal = normalize(node.normal);
-
-  node.color.rgb = ((data >> uint32_t3(27, 21, 16)) & uint32_t3(0x1F, 0x3F, 0x1F)) /
-                   float3((1 << 5) - 1, (1 << 6) - 1, (1 << 5) - 1);
-  node.color.a = 1.0f;
-
-  return node;
-}
 
 struct BaseTreeHeader<T>
     where T : IBuffer {
@@ -136,7 +101,7 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
   [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
   RWStructuredBuffer<AtomicBranchNode> voxel_tree[];
   [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-  RWStructuredBuffer<AtomicPackedLeafNode> voxel_tree_leaf[];
+  RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
 
 #else
 
@@ -145,14 +110,14 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     RWStructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-    RWStructuredBuffer<PackedLeafNode> voxel_tree_leaf[];
+    RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
 
   #else
 
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     StructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-    StructuredBuffer<PackedLeafNode> voxel_tree_leaf[];
+    StructuredBuffer<LeafNode> voxel_tree_leaf[];
 
   #endif
 
@@ -171,6 +136,9 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
 #endif
 // clang-format on
 
+[[vk::binding(3, VOXEL_TREE_SET_BINDING)]]
+CountedBuffer<Material> material_arr;
+
 static const float box_size = 1 << voxel_tree_header.box_size_exp;
 static const uint32_t grid_n = 1 << (voxel_tree_header.max_depth << 1);
 static const float voxel_size = FloatDivideBy2ToN(box_size, voxel_tree_header.max_depth << 1);
@@ -179,6 +147,11 @@ static groupshared uint32_t ray_ptr_stack_mem[64][PTR_STACK_SIZE];
 static const uint32_t memory_index = spirv_asm {
         result:$$uint = OpLoad builtin(LocalInvocationIndex:uint);
     };
+
+uint32_t PackTreeIndex(const uint32_t3 tree_index) {
+  return SumComponents(
+      tree_index << uint32_t3(0, voxel_tree_header.max_depth << 1, (voxel_tree_header.max_depth << 1) << 1));
+}
 
 float3 GetWorldPositionCenter(const uint32_t3 tree_index, const uint32_t level) {
   const uint32_t level_shift = ((voxel_tree_header.max_depth - 1) - level) << 1;
@@ -236,7 +209,7 @@ float3 StepTreeRaySingle(const float3 position, float3 ray_dir, const uint32_t l
 
   const float delta_t = dot(mask, t_max);
 
-  const float voxel_clamp_epsilon = 1e-3f;
+  const float voxel_clamp_epsilon = 2e-5f;
   return clamp(position + delta_t * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
                neighbor_max_bound - voxel_clamp_epsilon);
 };
@@ -263,7 +236,7 @@ float3 StepTreeRay(const float3 ray_dir_step, const float3 ray_dir, const float3
   const float delta_t = dot(mask, t_max);
   t += delta_t;
 
-  const float voxel_clamp_epsilon = 1e-3f;
+  const float voxel_clamp_epsilon = 2e-5f;
   return clamp(position + delta_t * ray_dir, neighbor_min_bound + voxel_clamp_epsilon,
                neighbor_max_bound - voxel_clamp_epsilon);
 }
@@ -295,11 +268,7 @@ LeafNode GetLeafNodeAtFilledIndex(const uint32_t3 tree_index, out uint32_t ptr, 
 
   const uint32_t leaf_page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t leaf_page_offset = ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
-#ifdef VOXEL_TREE_ATOMIC
-  return UnpackLeafNode(voxel_tree_leaf[leaf_page_index][leaf_page_offset].data.load());
-#else
-  return UnpackLeafNode(voxel_tree_leaf[leaf_page_index][leaf_page_offset].data);
-#endif
+  return voxel_tree_leaf[leaf_page_index][leaf_page_offset];
 }
 
 void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout BranchNode node,
@@ -333,22 +302,19 @@ void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout Br
 #ifndef VOXEL_TREE_ATOMIC
 
 struct RaycastResult {
-  float4 hit_color;
   float3 hit_position;
   uint32_t iterations;
   float3 hit_normal;
   float t;
   uint32_t3 hit_tree_index;
   uint32_t leaf_ptr;
+  uint32_t hit_material_index;
   uint32_t hit_level;
-  bool error;
   bool hit;
 };
 
 void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, const float t_max = 1e10f) {
   result.hit = false;
-  result.error = false;
-  result.hit_color = 0.0f;
   result.t = 0.0f;
   result.iterations = 0;
   ray_dir += 1e-4f;
@@ -420,10 +386,56 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-  const LeafNode leaf_node = UnpackLeafNode(voxel_tree_leaf[page_index][page_offset].data);
-  result.hit_color = leaf_node.color;
+  const LeafNode leaf_node = voxel_tree_leaf[page_index][page_offset];
+  result.hit_material_index = leaf_node.material_index;
   result.leaf_ptr = ptr;
-  result.hit_normal = leaf_node.normal;
+
+  const float3 voxel_center = GetWorldPositionCenter(result.hit_tree_index, result.hit_level);
+  const float3 hit_offset = (result.hit_position - voxel_center);
+  const float3 abs_hit_offset = abs(result.hit_position - voxel_center);
+  result.hit_normal =
+      sign(hit_offset) *
+      (abs_hit_offset.x > abs_hit_offset.y && abs_hit_offset.x > abs_hit_offset.z
+           ? float3(1.0f, 0.0f, 0.0f)
+           : (abs_hit_offset.y > abs_hit_offset.z ? float3(0.0f, 1.0f, 0.0f) : float3(0.0f, 0.0f, 1.0f)));
 }
 
 #endif
+
+static const int32_t3 offset_masks[26] = {
+  // top
+  int32_t3(0, 1, 0),
+  int32_t3(1, 1, 0),
+  int32_t3(-1, 1, 0),
+  int32_t3(0, 1, 1),
+  int32_t3(0, 1, -1),
+
+  int32_t3(1, 1, -1),
+  int32_t3(1, 1, 1),
+  int32_t3(-1, 1, -1),
+  int32_t3(-1, 1, 1),
+
+  // middle (no (0, 0, 0))
+  int32_t3(1, 0, 0),
+  int32_t3(-1, 0, 0),
+  int32_t3(0, 0, 1),
+  int32_t3(0, 0, -1),
+
+  int32_t3(1, 0, -1),
+  int32_t3(1, 0, 1),
+  int32_t3(-1, 0, -1),
+  int32_t3(-1, 0, 1),
+
+  // bottom
+  int32_t3(0, -1, 0),
+  int32_t3(1, -1, 0),
+  int32_t3(-1, -1, 0),
+  int32_t3(0, -1, 1),
+  int32_t3(0, -1, -1),
+
+  int32_t3(1, -1, -1),
+  int32_t3(1, -1, 1),
+  int32_t3(-1, -1, -1),
+  int32_t3(-1, -1, 1),
+};
+

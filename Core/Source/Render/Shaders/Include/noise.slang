@@ -59,8 +59,10 @@ static const float GRADIENTS_2D[] = {
 
 static const uint32_t3 PRIME = uint32_t3(501125321, 1136930381, 1720413743);
 
+[Differentiable]
 float InterpQuintic(const float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
 
+[Differentiable]
 int32_t Hash2D(const int32_t seed, const int32_t x, const int32_t y) {
   int32_t hash = seed ^ x ^ y;
 
@@ -68,6 +70,7 @@ int32_t Hash2D(const int32_t seed, const int32_t x, const int32_t y) {
   return hash;
 }
 
+[Differentiable]
 float GradCoord2D(const int32_t seed, const int32_t x, const int32_t y, const float xd, const float yd) {
   int hash = Hash2D(seed, x, y);
   hash ^= hash >> 15;
@@ -75,6 +78,7 @@ float GradCoord2D(const int32_t seed, const int32_t x, const int32_t y, const fl
   return xd * GRADIENTS_2D[hash] + yd * GRADIENTS_2D[hash | 1];
 }
 
+[Differentiable]
 float SamplePerlin(const int32_t seed, const float2 postion) {
   int x0 = (int)floor(postion.x);
   int y0 = (int)floor(postion.y);
@@ -98,8 +102,10 @@ float SamplePerlin(const int32_t seed, const float2 postion) {
   return lerp(xf0, xf1, ys) * 1.4247691104677813f;
 }
 
+[Differentiable]
 float Amplify(const float h) { return h * h * (h > 0.7f ? h : 1.0f) * 20.0f; }
 
+[Differentiable]
 float SampleNoise(const int32_t seed, const float2 position) {
   const uint32_t octaves = 4;
   const float persistance = 0.5f;
@@ -117,4 +123,11 @@ float SampleNoise(const int32_t seed, const float2 position) {
   }
 
   return Amplify(h);
+}
+
+float2 SampleNoiseGradient(const int32_t seed, const float2 position) {
+  const DifferentialPair<float2> x_partial = DifferentialPair<float2>(position, float2(1.0f, 0.0f));
+  const DifferentialPair<float2> y_partial = DifferentialPair<float2>(position, float2(0.0f, 1.0f));
+
+  return float2(fwd_diff(SampleNoise)(seed, x_partial).d, fwd_diff(SampleNoise)(seed, y_partial).d);
 }

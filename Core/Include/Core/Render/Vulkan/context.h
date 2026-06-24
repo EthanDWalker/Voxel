@@ -28,5 +28,6 @@ struct VulkanContext {
   static VkQueue graphics_queue;
   static u32 graphics_queue_index;
   static std::mutex graphics_queue_mutex;
+  static std::mutex device_mutex;
 };
 } // namespace Core

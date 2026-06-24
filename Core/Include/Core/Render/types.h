@@ -5,8 +5,13 @@
 namespace Core {
 const u32 GPU_ALIGNMENT = 16;
 
-using Index = u32;
-using Instance = VkAccelerationStructureInstanceKHR;
+struct Material {
+  Vec4f32 albedo;
+  float rough;
+  float metallic;
+  float emmisive;
+  float reflect;
+};
 
 struct alignas(GPU_ALIGNMENT) ToneMapPushConstants {
   f32 delta_time;
@@ -14,7 +19,7 @@ struct alignas(GPU_ALIGNMENT) ToneMapPushConstants {
 
 struct alignas(GPU_ALIGNMENT) FrameLuminanceData {
   f32 acc_log_luminance;
-  u32 sample_count;
+  f32 total_weight;
 };
 
 struct alignas(GPU_ALIGNMENT) ChunkAllocationInfo {
@@ -22,44 +27,21 @@ struct alignas(GPU_ALIGNMENT) ChunkAllocationInfo {
   u32 lod;
   u32 alloc_leaf;
   u32 color;
-  u32 seed;
-};
-
-struct alignas(GPU_ALIGNMENT) TerrainAllocateInfo {
-  Vec2u32 extent;
-  Vec2f32 center;
-  f32 density;
   i32 seed;
-  u32 depth;
-  u32 leaf;
-};
-
-struct alignas(GPU_ALIGNMENT) MeshAllocateInfo {
-  Mat4f32 instance_matrix;
-  u32 depth;
-  u32 leaf;
-  u32 instance_index;
-  u32 albedo_index;
-};
-
-struct alignas(GPU_ALIGNMENT) Vertex {
-  vec<4, f16> position;
-  u16 normal;
-  u16 _p0;
-  vec<2, f16> uv;
-};
-
-struct alignas(GPU_ALIGNMENT) DirectionalLight {
-  Vec3f32 direction;
-  f32 intesity;
-  Vec3f32 color;
+  u32 max_depth;
 };
 
 struct alignas(GPU_ALIGNMENT) VoxelVolume {
-  Vec3f32 min;
-  u32 _p0;
-  Vec3f32 max;
-  u32 _p1;
+  Vec3u32 min_tree_index;
+  u32 depth;
+  Vec3u32 max_tree_index;
+  u32 material_index;
+};
+
+struct alignas(GPU_ALIGNMENT) LightingPushConstants {
+  f32 diffuse_alpha;
+  f32 specular_alpha;
+  u32 frame_number;
 };
 
 struct alignas(GPU_ALIGNMENT) Raycast {
@@ -70,13 +52,14 @@ struct alignas(GPU_ALIGNMENT) Raycast {
 };
 
 struct alignas(GPU_ALIGNMENT) RaycastResult {
-  Vec4f32 hit_color;
   Vec3f32 hit_position;
-  u32 iterations;
+  uint32_t iterations;
   Vec3f32 hit_normal;
-  f32 t;
+  float t;
   Vec3u32 hit_tree_index;
-  bool error;
+  uint32_t leaf_ptr;
+  uint32_t hit_material_index;
+  uint32_t hit_level;
   bool hit;
 };
 

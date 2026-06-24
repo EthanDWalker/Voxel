@@ -2,7 +2,6 @@
 
 #include "Core/Render/Vulkan/descriptors.h"
 #include "Core/Render/Vulkan/image.h"
-#include "Core/Render/Vulkan/indirect_buffer.h"
 #include "Core/Render/Vulkan/other_buffer.h"
 #include "Core/Render/Vulkan/pipeline.h"
 #include "Core/Render/Vulkan/swapchain.h"
@@ -18,13 +17,13 @@ namespace Core {
 struct RenderSpec {
   u32 max_directional_lights = 10;
   u32 max_raycasts = 10;
-  u32 max_meshes = 10'000;
-  u32 max_average_rays_per_pixel = 1;
-  u32 max_cached_indirect_lighting_per_pixel = 2;
 };
 
 const u32 BEAM_PREPASS_SCALE_EXP = 2;
-const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
+const u32 INDIRECT_LIGHT_SCALE_EXP = 0;
+
+const f32 DEFAULT_DIFFUSE_LIGHT_ALPHA = 0.08f;
+const f32 DEFAULT_SPECULAR_LIGHT_ALPHA = 0.05f;
 
 struct RenderContext {
   RenderSpec current_spec;
@@ -45,14 +44,9 @@ struct RenderContext {
 
   VulkanPipeline<PipelineType::Compute> main_pipeline;
   VulkanPipeline<PipelineType::Compute> beam_prepass_pipeline;
-  VulkanPipeline<PipelineType::Compute> clear_volume_pipeline;
-  VulkanPipeline<PipelineType::Compute> indirect_lighting_prepass_pipeline;
-  VulkanPipeline<PipelineType::Compute> indirect_lighting_pipeline;
+  VulkanPipeline<PipelineType::Compute> lighting_pipeline;
   VulkanPipeline<PipelineType::Compute> chunk_allocate_pipeline;
   VulkanPipeline<PipelineType::Compute> tone_map_pipeline;
-
-  VulkanPipeline<PipelineType::Graphic> mesh_allocate_branch_pipeline;
-  VulkanPipeline<PipelineType::Graphic> mesh_allocate_leaf_pipeline;
 
   VulkanPipeline<PipelineType::Graphic> debug_chunk_boundaries_pipeline;
 
@@ -76,25 +70,19 @@ struct RenderContext {
   VulkanDescriptorLayout swapchain_descriptor_layout;
   std::array<VulkanDescriptor, VulkanSwapchain::FRAME_OVERLAP> swapchain_descriptor = {};
 
-  VulkanDescriptorLayout light_descriptor_layout;
-  VulkanDescriptor light_descriptor;
-  VulkanBuffer<BufferType::CountedBuffer, DirectionalLight> directional_light_buffer =
-      "directional light buffer";
-  u32 directional_light_count;
-
   SparseVoxelTree voxel_tree;
 
-  DeviceHashSet indirect_light_hash_set;
-  IndirectDispatchBuffer<PipelineType::Compute, IndirectLightingRayDispatch> indirect_light_dispatch_buffer;
+  DeviceHashSet light_hash_set;
+  f32 diffuse_light_alpha = DEFAULT_DIFFUSE_LIGHT_ALPHA;
+  f32 specular_light_alpha = DEFAULT_SPECULAR_LIGHT_ALPHA;
 
+  VulkanPipeline<PipelineType::Compute> clear_volume_pipeline;
   std::vector<VoxelVolume> clear_volume_cmds;
   std::mutex clear_volume_cmd_mutex;
 
-  VulkanDescriptorLayout mesh_descriptor_layout;
-  VulkanDescriptor mesh_descriptor;
-
-  VulkanDescriptorLayout mesh_voxelize_descriptor_layout;
-  VulkanDescriptor mesh_voxelize_descriptor;
+  VulkanPipeline<PipelineType::Compute> fill_volume_pipeline;
+  std::vector<VoxelVolume> fill_volume_cmds;
+  std::mutex fill_volume_cmd_mutex;
 
   VulkanSampler albedo_sampler;
 

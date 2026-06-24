@@ -4,6 +4,9 @@
 #include <functional>
 
 namespace Core {
+void QueueFillVolumeCmd(const VoxelVolume &volume);
+void FlushFillVolumeCmds();
+
 void QueueClearVolumeCmd(const VoxelVolume &volume);
 void FlushClearVolumeCmds();
 

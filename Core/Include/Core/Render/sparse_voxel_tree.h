@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Vulkan/other_buffer.h"
 #include "Vulkan/descriptors.h"
+#include "Vulkan/other_buffer.h"
 #include "types.h"
 #include <memory>
 #include <vector>
@@ -9,16 +9,17 @@
 namespace Core {
 
 struct SparseVoxelTree {
-  static const bool HOST = false;
-
   static const u32 SENTINAL = 0xFFFFFFFF;
 
   static const u32 MAX_PAGES = 100'000;
-  static const u32 MAX_DEPTH = 2;
+  static const u32 MAX_DEPTH = 5;
+  // material index stored as 16 bit unsigned int;
+  static const u32 MAX_MATERIALS = Min(1024, 1 << 16);
 
   static const u32 PAGE_SIZE_EXP = 17;
   static const u32 PAGE_SIZE = 1 << PAGE_SIZE_EXP;
-  static const u32 BOX_SIZE_EXP = 10;
+  static const u32 BOX_SIZE_EXP = 8;
+  static const u32 VOXEL_GRID_SIZE = 1 << (MAX_DEPTH << 1);
   constexpr static const f32 MIN_BOUND = -1.0f * f32(1 << (BOX_SIZE_EXP - 1));
   constexpr static const f32 MAX_BOUND = f32(1 << (BOX_SIZE_EXP - 1));
   constexpr static const f32 VOXEL_SIZE = (1 << BOX_SIZE_EXP) / f32(1 << (MAX_DEPTH << 1));
@@ -28,13 +29,8 @@ struct SparseVoxelTree {
     u32 child_ptr;
   };
 
-  // 5 bits r
-  // 6 bits g
-  // 6 bits b
-  // 8 bit phi
-  // 8 bit theta
   struct LeafNode {
-    u32 data;
+    u16 material_index;
   };
 
   struct alignas(GPU_ALIGNMENT) TreeHeader {
@@ -55,12 +51,13 @@ struct SparseVoxelTree {
   VulkanDescriptor descriptor;
   VulkanBuffer<BufferType::StructuredBuffer, TreeHeader> tree_header_buffer = "tree header buffer";
   VulkanBuffer<BufferType::StagingBuffer> tree_header_host_buffer = "tree header host buffer";
-  VulkanBuffer<BufferType::StagingBuffer> empty_page_host_buffer = "empty page buffer";
+  VulkanBuffer<BufferType::CountedBuffer, Material> material_buffer = "material buffer";
+  std::vector<Material> material_arr;
 
   SparseVoxelTree();
 
-  void AllocateBranchPages(const u32 count);
-  void AllocateLeafPages(const u32 count);
+  void ResizeBranch(const u32 count);
+  void ResizeLeaf(const u32 count);
 };
 
 static constexpr Vec3u32 GetTreeIndex(const Vec3f32 p) {

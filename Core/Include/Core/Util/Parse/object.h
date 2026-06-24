@@ -5,6 +5,15 @@
 #include <memory>
 
 namespace Core {
+struct Vertex {
+  vec<4, f16> position;
+  u16 normal;
+  u16 _p0;
+  vec<2, f16> uv;
+};
+
+using Index = u32;
+
 struct MaterialData {
   std::string name;
 

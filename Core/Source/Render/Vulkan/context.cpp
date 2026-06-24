@@ -24,6 +24,7 @@ VkDebugUtilsMessengerEXT VulkanContext::debug_messenger;
 VkQueue VulkanContext::graphics_queue;
 u32 VulkanContext::graphics_queue_index;
 std::mutex VulkanContext::graphics_queue_mutex;
+std::mutex VulkanContext::device_mutex;
 
 static thread_local VkCommandPool command_pool;
 static thread_local VkCommandBuffer command_buffer;
@@ -74,11 +75,8 @@ void VulkanContext::StartUp() {
   VK_CHECK(glfwCreateWindowSurface(instance, (GLFWwindow *)Window::handle, nullptr, &surface));
 
   VkPhysicalDeviceFeatures features{};
-  features.multiDrawIndirect = true;
-  features.fillModeNonSolid = true;
   features.shaderInt64 = true;
   features.shaderInt16 = true;
-  features.fragmentStoresAndAtomics = true;
   features.geometryShader = true;
 
   VkPhysicalDeviceVulkan13Features features_13{};
@@ -89,8 +87,6 @@ void VulkanContext::StartUp() {
 
   VkPhysicalDeviceVulkan12Features features_12{};
   features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-  features_12.bufferDeviceAddress = true;
-  features_12.drawIndirectCount = true;
   features_12.descriptorIndexing = true;
   features_12.shaderSampledImageArrayNonUniformIndexing = true;
   features_12.runtimeDescriptorArray = true;
@@ -106,6 +102,7 @@ void VulkanContext::StartUp() {
 
   VkPhysicalDeviceVulkan11Features features_11{};
   features_11.storageBuffer16BitAccess = true;
+  features_11.uniformAndStorageBuffer16BitAccess = true;
 
   VkPhysicalDeviceRobustness2FeaturesEXT robustness_2{};
   robustness_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
@@ -123,8 +120,6 @@ void VulkanContext::StartUp() {
   float_atomic_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
   float_atomic_features.shaderBufferFloat32AtomicAdd = true;
   float_atomic_features.shaderBufferFloat32Atomics = true;
-  float_atomic_features.shaderSharedFloat32AtomicAdd = true;
-  float_atomic_features.shaderSharedFloat32Atomics = true;
 
   vkb::PhysicalDevice vkb_physical_device =
       physical_device_selector.set_minimum_version(1, 3)
@@ -135,12 +130,7 @@ void VulkanContext::StartUp() {
           .set_surface(surface)
           .add_required_extension(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME)
           .add_required_extension_features(robustness_2)
-          .add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
           .add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
-    /*
-          .add_required_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME)
-          .add_required_extension_features(fault_features)
-    */
           .add_required_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME)
           .add_required_extension_features(float_atomic_features)
           .select()
@@ -188,10 +178,24 @@ void VulkanContext::StartUp() {
 
   VK_CHECK(vkCreateFence(VulkanContext::device, &fence_ci, nullptr, &fence));
 
-  ThreadPool::CreateThreadLocalData([=]() {
+  ThreadPool::CreateThreadLocalData([]() {
+    VkCommandPoolCreateInfo command_pool_ci{};
+    command_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_ci.queueFamilyIndex = VulkanContext::graphics_queue_index;
+
     VK_CHECK(vkCreateCommandPool(device, &command_pool_ci, nullptr, &command_pool));
 
+    VkCommandBufferAllocateInfo command_buffer_ci{};
+    command_buffer_ci.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_ci.commandBufferCount = 1;
+    command_buffer_ci.commandPool = command_pool;
+    command_buffer_ci.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
     VK_CHECK(vkAllocateCommandBuffers(device, &command_buffer_ci, &command_buffer));
+
+    VkFenceCreateInfo fence_ci{};
+    fence_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     VK_CHECK(vkCreateFence(VulkanContext::device, &fence_ci, nullptr, &fence));
   });
@@ -230,17 +234,30 @@ void VulkanContext::ShutDown() {
 
   DescriptorBuilder::ShutDown();
 
-  vkDestroyFence(device, fence, nullptr);
-  vkDestroyCommandPool(device, command_pool, nullptr);
+  {
+    std::lock_guard<std::mutex> lock(device_mutex);
+    vkDestroyFence(device, fence, nullptr);
+    vkDestroyCommandPool(device, command_pool, nullptr);
+  }
+
+  std::condition_variable cv;
 
   ThreadPool::DestroyThreadLocalData([]() {
+    std::lock_guard<std::mutex> lock(device_mutex);
+
     vkDestroyFence(device, fence, nullptr);
     vkDestroyCommandPool(device, command_pool, nullptr);
   });
+  ThreadPool::WaitForThreadLocalData();
 
   vkDestroySurfaceKHR(instance, surface, nullptr);
   vmaDestroyAllocator(allocator);
-  vkDestroyDevice(device, nullptr);
+
+  {
+    std::lock_guard<std::mutex> lock(device_mutex);
+    vkDestroyDevice(device, nullptr);
+  }
+
   vkb::destroy_debug_utils_messenger(instance, debug_messenger);
   vkDestroyInstance(instance, nullptr);
 }

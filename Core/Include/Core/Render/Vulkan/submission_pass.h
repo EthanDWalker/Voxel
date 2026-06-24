@@ -13,7 +13,6 @@ enum class SubPassType : u8 {
   Transfer,
   Compute,
   Graphic,
-  Raytrace,
 };
 
 template <SubPassType> struct VulkanSubPass {};
@@ -65,46 +64,6 @@ struct BaseVulkanSubPass {
   void ReserveBufferDependencies(const u32 count) { buffer_barriers.reserve(buffer_barriers.size() + count); }
 
   void ReserveImageDependencies(const u32 count) { image_barriers.reserve(image_barriers.size() + count); }
-};
-
-template <> struct VulkanSubPass<SubPassType::Raytrace> : BaseVulkanSubPass {
-  template <DeviceResourceType T> void AddDependency(BaseVulkanBuffer &object) {
-    VkBufferMemoryBarrier2 &barrier = NewBufferBarrier(object);
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-
-    if constexpr (T == DeviceResourceType::RWBuffer) {
-      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    } else if constexpr (T == DeviceResourceType::Buffer) {
-      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    } else {
-      static_assert(false, "Unsupported dependency type");
-    }
-
-    object.pipeline_stage_mask = barrier.dstStageMask;
-    object.access_mask = barrier.dstAccessMask;
-  }
-
-  template <DeviceResourceType T> void AddDependency(BaseVulkanImage &object) {
-    VkImageMemoryBarrier2 &barrier = NewImageBarrier(object);
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-
-    if constexpr (T == DeviceResourceType::SampledImage) {
-      barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    } else if constexpr (T == DeviceResourceType::StorageImage) {
-      barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    } else if constexpr (T == DeviceResourceType::RWStorageImage) {
-      barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    } else {
-      static_assert(false, "Unsupported dependency type");
-    }
-
-    object.layout = barrier.newLayout;
-    object.access_mask = barrier.dstAccessMask;
-    object.pipeline_stage_mask = barrier.dstStageMask;
-  }
 };
 
 template <> struct VulkanSubPass<SubPassType::Compute> : BaseVulkanSubPass {

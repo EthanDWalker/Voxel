@@ -4,10 +4,71 @@
 #include "Core/Render/Vulkan/context.h"
 #include "Core/Render/Vulkan/submission_pass.h"
 #include "Core/Render/context.h"
+#include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
 #include "Core/Util/thread_pool.h"
 
 namespace Core {
+void QueueFillVolumeCmd(const VoxelVolume &volume) {
+  ZoneScoped;
+  std::lock_guard<std::mutex> lock = std::lock_guard(render_context->fill_volume_cmd_mutex);
+  render_context->fill_volume_cmds.emplace_back(volume);
+}
+
+void FlushFillVolumeCmds() {
+  ZoneScoped;
+  std::vector<VoxelVolume> local_cmds;
+
+  {
+    std::lock_guard<std::mutex> lock = std::lock_guard(render_context->fill_volume_cmd_mutex);
+    if (render_context->fill_volume_cmds.size() == 0)
+      return;
+    local_cmds = render_context->fill_volume_cmds;
+    render_context->fill_volume_cmds.clear();
+  }
+
+  for (u32 i = 0; i < SparseVoxelTree::MAX_DEPTH; i++) {
+    VulkanContext::Submit([local_cmds](VulkanCommandBuffer &cmd) {
+      {
+        cmd.BeginDebugPass("fill volume cmds");
+
+        cmd.BindPipeline(render_context->fill_volume_pipeline);
+        cmd.BindDescriptors({render_context->voxel_tree.descriptor});
+
+        for (u32 i = 0; i < local_cmds.size(); i++) {
+          cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(VoxelVolume), &local_cmds[i]);
+
+          cmd.Dispatch((local_cmds[i].max_tree_index - local_cmds[i].min_tree_index));
+          cmd.ClearPushConstants();
+        }
+        cmd.EndDebugPass();
+      }
+
+      {
+        cmd.BeginDebugPass("fill volume cmds");
+        VulkanSubPass<SubPassType::Transfer> pass;
+        pass.AddDependency<DeviceResourceType::TransferSrc>(render_context->voxel_tree.tree_header_buffer);
+        pass.AddDependency<DeviceResourceType::TransferDst>(
+            render_context->voxel_tree.tree_header_host_buffer);
+
+        cmd.BindSubPass(pass);
+
+        cmd.UploadBufferToBuffer(render_context->voxel_tree.tree_header_buffer,
+                                 render_context->voxel_tree.tree_header_host_buffer,
+                                 render_context->voxel_tree.tree_header_buffer.size);
+
+        cmd.EndDebugPass();
+      }
+    });
+
+    const SparseVoxelTree::TreeHeader *const header =
+        (SparseVoxelTree::TreeHeader *)render_context->voxel_tree.tree_header_host_buffer.host_address;
+
+    render_context->voxel_tree.ResizeBranch(header->branch_count);
+    render_context->voxel_tree.ResizeLeaf(header->leaf_count);
+  }
+}
+
 void QueueClearVolumeCmd(const VoxelVolume &volume) {
   ZoneScoped;
   std::lock_guard<std::mutex> lock = std::lock_guard(render_context->clear_volume_cmd_mutex);
@@ -27,7 +88,6 @@ void FlushClearVolumeCmds() {
   }
 
   ThreadPool::QueueTask([local_cmds]() {
-    SCOPED_TIMER("flush clear cmds");
     VulkanContext::Submit([local_cmds](VulkanCommandBuffer &cmd) {
       cmd.BeginDebugPass("clear volume cmds");
 
@@ -37,9 +97,7 @@ void FlushClearVolumeCmds() {
       for (u32 i = 0; i < local_cmds.size(); i++) {
         cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(VoxelVolume), &local_cmds[i]);
 
-        const Vec3u32 min_tree_index = GetTreeIndex(local_cmds[i].min);
-        const Vec3u32 max_tree_index = GetTreeIndex(local_cmds[i].max);
-        cmd.Dispatch((max_tree_index - min_tree_index));
+        cmd.Dispatch((local_cmds[i].max_tree_index - local_cmds[i].min_tree_index));
         cmd.ClearPushConstants();
       }
       cmd.EndDebugPass();

@@ -62,8 +62,6 @@ struct VulkanCommandBuffer {
   void Blit(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image, const u32 src_mip_level,
             const u32 dst_mip_level);
 
-  void TraceRays(const Vec3u32 dispatch, const VulkanShaderBindingTable &shader_binding_table);
-
   void BindSubPass(const BaseVulkanSubPass &sub_pass);
 
   void CopyImageToImage(const BaseVulkanImage &src_image, const BaseVulkanImage &dst_image);
@@ -75,8 +73,6 @@ struct VulkanCommandBuffer {
       bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
     } else if constexpr (T == PipelineType::Graphic) {
       bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    } else if constexpr (T == PipelineType::Raytrace) {
-      bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
     } else {
       static_assert(false, "This pipeline type is not supported");
     }

@@ -1,6 +1,6 @@
 #pragma once
 
-static const float CAMERA_EXPOSURE = 1.6f;
+static const float CAMERA_EXPOSURE = 1.0f;
 
 struct Camera {
   float4x4 projection;

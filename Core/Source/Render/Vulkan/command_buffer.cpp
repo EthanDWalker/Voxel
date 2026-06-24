@@ -5,7 +5,6 @@
 #include "Core/Render/Vulkan/image.h"
 #include "Core/Render/Vulkan/image_util.h"
 #include "Core/Render/Vulkan/info.h"
-#include "Core/Render/Vulkan/shader_binding_table.h"
 #include "Core/Render/Vulkan/util.h"
 
 namespace Core {
@@ -14,13 +13,6 @@ void VulkanCommandBuffer::Begin() {
   VkCommandBufferBeginInfo cmd_begin = CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
   VK_CHECK(vkBeginCommandBuffer(obj, &cmd_begin));
-}
-
-void VulkanCommandBuffer::TraceRays(const Vec3u32 dispatch,
-                                    const VulkanShaderBindingTable &shader_binding_table) {
-  vkCmdTraceRaysKHR(obj, &shader_binding_table.ray_gen_entry, &shader_binding_table.miss_entry,
-                    &shader_binding_table.closest_hit_entry, &shader_binding_table.callable_entry, dispatch.x,
-                    dispatch.y, dispatch.z);
 }
 
 void VulkanCommandBuffer::DispatchIndirect(const BaseVulkanBuffer &dispatch_cmd) {

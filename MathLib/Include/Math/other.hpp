@@ -208,3 +208,5 @@ static Mat4f32 InstanceMatrix(const Vec3f32 translation, const Quat rotation, co
 template <typename T, typename U> static constexpr T LastIndex(const T i, const U max_value_exclusive) {
   return (i + (max_value_exclusive - 1)) % max_value_exclusive;
 }
+
+template <typename T> static constexpr T Lerp(const T a, const T b, const f32 t) { return a + (b - a) * t; }

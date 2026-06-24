@@ -4,8 +4,8 @@
 #include <functional>
 #include <queue>
 #include <thread>
-#include <vector>
 #include <tracy/Tracy.hpp>
+#include <vector>
 
 namespace Core {
 struct ThreadPool {
@@ -17,7 +17,8 @@ struct ThreadPool {
   static std::queue<std::function<void()>> task_queue;
 
   static std::mutex queue_mutex;
-  static std::condition_variable cv;
+  static std::condition_variable work_cv;
+  static std::condition_variable completion_cv;
   static bool stop;
 
   static void StartUp(const u32 thread_count = std::thread::hardware_concurrency() / 2 + 1) {
@@ -28,10 +29,11 @@ struct ThreadPool {
         std::function<void()> task;
 
         while (true) {
+          bool notify = false;
           {
             std::unique_lock<std::mutex> lock(queue_mutex);
 
-            cv.wait(lock, []() { return !task_queue.empty() || !all_thread_queue.empty() || stop; });
+            work_cv.wait(lock, []() { return !task_queue.empty() || !all_thread_queue.empty() || stop; });
 
             if (stop && task_queue.empty() && all_thread_queue.empty()) {
               return;
@@ -51,19 +53,27 @@ struct ThreadPool {
 
               if (all_threads_done) {
                 all_thread_queue.pop();
+
                 for (u32 i = 0; i < all_thread_task_complete.size(); i++) {
                   all_thread_task_complete[i] = false;
                 }
-                cv.notify_all();
+
+                notify = true;
               }
 
+              lock.unlock();
               task();
             } else if (!task_queue.empty()) {
               task = std::move(task_queue.front());
               task_queue.pop();
 
+              lock.unlock();
               task();
             }
+          }
+
+          if (notify) {
+            completion_cv.notify_all();
           }
         }
       });
@@ -76,7 +86,14 @@ struct ThreadPool {
       std::unique_lock<std::mutex> lock(queue_mutex);
       task_queue.emplace(task);
     }
-    cv.notify_one();
+    work_cv.notify_one();
+  }
+
+  static void WaitForThreadLocalData() {
+    ZoneScoped;
+
+    std::unique_lock<std::mutex> lock(queue_mutex);
+    completion_cv.wait(lock, []() { return all_thread_queue.empty(); });
   }
 
   static void CreateThreadLocalData(std::function<void()> task) {
@@ -85,7 +102,7 @@ struct ThreadPool {
       std::unique_lock<std::mutex> lock(queue_mutex);
       all_thread_queue.emplace(task);
     }
-    cv.notify_all();
+    work_cv.notify_all();
   }
 
   static void DestroyThreadLocalData(std::function<void()> task) {
@@ -95,7 +112,7 @@ struct ThreadPool {
       all_thread_queue.emplace(task);
     }
 
-    cv.notify_all();
+    work_cv.notify_all();
   }
 
   static void ShutDown() {
@@ -104,7 +121,7 @@ struct ThreadPool {
       std::unique_lock<std::mutex> lock(queue_mutex);
       stop = true;
     }
-    cv.notify_all();
+    work_cv.notify_all();
 
     for (auto &thread : threads) {
       thread.join();

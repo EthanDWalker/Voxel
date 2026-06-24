@@ -1,8 +1,9 @@
 #pragma once
 
-static const float MIN_LOG_LUMINANCE = log2(0.003f);
-static const float MAX_LOG_LUMINANCE = log2(11.0f);
-static const float INV_LOG_LUMINANCE_RANGE = 1.0f / (MAX_LOG_LUMINANCE - MIN_LOG_LUMINANCE);
+static const float MIN_LOG_LUMINANCE = log2(0.03f);
+static const float MAX_LOG_LUMINANCE = log2(15.0f);
+static const float LOG_LUMINANCE_RANGE = (MAX_LOG_LUMINANCE - MIN_LOG_LUMINANCE);
+static const float INV_LOG_LUMINANCE_RANGE = 1.0f / LOG_LUMINANCE_RANGE;
 
 float TonemapACES(const float x) {
   const float a = 2.51f;
@@ -12,6 +13,8 @@ float TonemapACES(const float x) {
   const float e = 0.14f;
   return (x * (a * x + b)) / (x * (c * x + d) + e);
 }
+
+float WeightLuminanceSample(const uint32_t2 pixel_index, const uint32_t2 image_size) { return 1.0f; }
 
 float GetLuminance(const float3 color) { return dot(color, float3(0.2125f, 0.7154f, 0.0721f)); }
 

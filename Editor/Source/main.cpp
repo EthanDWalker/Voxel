@@ -19,7 +19,7 @@ int main() {
     editor.Run();
 
     {
-      SCOPED_TIMER("shut down");
+      SCOPED_TIMER("editor shut down");
       editor.ShutDown();
     }
   }
