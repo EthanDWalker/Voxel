@@ -15,15 +15,14 @@
 
 namespace Core {
 struct RenderSpec {
-  u32 max_directional_lights = 10;
   u32 max_raycasts = 10;
 };
 
 const u32 BEAM_PREPASS_SCALE_EXP = 2;
-const u32 INDIRECT_LIGHT_SCALE_EXP = 0;
+const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
 
-const f32 DEFAULT_DIFFUSE_LIGHT_ALPHA = 0.08f;
-const f32 DEFAULT_SPECULAR_LIGHT_ALPHA = 0.05f;
+const f32 DEFAULT_DIFFUSE_LIGHT_ALPHA = 0.01f;
+const f32 DEFAULT_SPECULAR_LIGHT_ALPHA = 0.2f;
 
 struct RenderContext {
   RenderSpec current_spec;
@@ -48,7 +47,7 @@ struct RenderContext {
   VulkanPipeline<PipelineType::Compute> chunk_allocate_pipeline;
   VulkanPipeline<PipelineType::Compute> tone_map_pipeline;
 
-  VulkanPipeline<PipelineType::Graphic> debug_chunk_boundaries_pipeline;
+  VulkanPipeline<PipelineType::Graphic> debug_quad_pipeline;
 
   VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
@@ -61,6 +60,7 @@ struct RenderContext {
           "frame luminance data buffer 1",
           "frame luminance data buffer 2",
   };
+
   VulkanDescriptorLayout frame_luminance_descriptor_layout;
   std::array<VulkanDescriptor, VulkanSwapchain::FRAME_OVERLAP> frame_luminance_descriptor = {};
 

@@ -60,7 +60,7 @@ SparseVoxelTree::SparseVoxelTree() {
   {
     Material torch_material{};
     torch_material.rough = 0.0f;
-    torch_material.emmisive = 3.0f;
+    torch_material.emissive = 3.0f;
     torch_material.metallic = 0.0f;
     torch_material.reflect = 0.25f;
     torch_material.albedo = Vec4f32(1.0f, 0.7f, 0.0f, 1.0f);
@@ -70,7 +70,7 @@ SparseVoxelTree::SparseVoxelTree() {
   {
     Material stone_material{};
     stone_material.rough = 0.95f;
-    stone_material.emmisive = 0.0f;
+    stone_material.emissive = 0.0f;
     stone_material.metallic = 0.0f;
     stone_material.reflect = 0.25f;
     stone_material.albedo = Vec4f32(0.5333333333f, 0.5490196078f, 0.5529411765f, 1.0f);

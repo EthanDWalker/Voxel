@@ -13,7 +13,7 @@ struct SparseVoxelTree {
 
   static const u32 MAX_PAGES = 100'000;
   static const u32 MAX_DEPTH = 5;
-  // material index stored as 16 bit unsigned int;
+  // material index stored as 16 bit unsigned int
   static const u32 MAX_MATERIALS = Min(1024, 1 << 16);
 
   static const u32 PAGE_SIZE_EXP = 17;
@@ -43,6 +43,8 @@ struct SparseVoxelTree {
     // non-const
     u32 leaf_count;
     u32 branch_count;
+    u32 allocated_leaf_count;
+    u32 allocated_branch_count;
   };
 
   std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>> branch_pages;

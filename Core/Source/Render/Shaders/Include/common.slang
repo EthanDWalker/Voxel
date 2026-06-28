@@ -1,36 +1,31 @@
 #pragma once
 
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
-static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 0;
+static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
 
 static const float PI = 3.14159f;
 
-struct DirectionalLight {
-  float3 direction;
-  float intensity;
-  float3 color;
-};
+struct AxisAlignedQuad {
+  float3 point_1;
+  uint16_t material_index;
+  uint16_t normal_index;
+  float3 point_2;
+  float area;
 
-struct IndirectLightingRayDispatch {
-  uint32_t3 tree_index;
-};
+  static const float3 quad_normal_arr[6] = {
+    // clang-format off
+    float3(-1.0f, 0.0f, 0.0f),
+    float3(1.0f, 0.0f, 0.0f),
+    float3(0.0f, -1.0f, 0.0f),
+    float3(0.0f, 1.0f, 0.0f),
+    float3(0.0f, 0.0f, -1.0f),
+    float3(0.0f, 0.0f, 1.0f),
+    // clang-format on
+  };
 
-struct DispatchCommand {
-  uint32_t groups_x;
-  uint32_t groups_y;
-  uint32_t groups_z;
-  uint32_t total_x;
-  uint32_t total_y;
-  uint32_t total_z;
-};
-
-struct RWDispatchCommand {
-  Atomic<uint32_t> groups_x;
-  Atomic<uint32_t> groups_y;
-  Atomic<uint32_t> groups_z;
-  Atomic<uint32_t> total_x;
-  Atomic<uint32_t> total_y;
-  Atomic<uint32_t> total_z;
+  property float3 normal {
+    get { return quad_normal_arr[normal_index]; }
+  }
 };
 
 interface IBuffer {
@@ -164,6 +159,26 @@ bool RayAABBIntersect(const float3 ray_dir, const float3 ray_origin, const float
   if (t_max_z < t_max)
     t_max = t_max_z;
   return t_max > 0.0f;
+}
+
+float RaySphereIntersection(const float3 sphere_origin, const float sphere_radius, float3 ray_origin,
+                            const float3 ray_dir) {
+  ray_origin = ray_origin - sphere_origin;
+
+  const float a = 1.0f;
+  const float b = 2.0f * dot(ray_origin, ray_dir);
+  const float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
+
+  const float delta_2 = b * b - 4.0f * a * c;
+  if (delta_2 < 0.0f) {
+    return -1.0f;
+  }
+  const float delta = sqrt(delta_2);
+
+  const float t_0 = (-b - delta) / (2.0f * a);
+  const float t_1 = (-b + delta) / (2.0f * a);
+
+  return min(t_0, t_1);
 }
 
 float3 GetBarycentric<let N : int>(const vector<float, N> positions[3], const vector<float, N> point) {

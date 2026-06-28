@@ -20,3 +20,7 @@ float G_2_SmithGGX(const float3 w_i, const float3 w_o, const float3 n, const flo
 
   return 2.0f * n_dot_l * n_dot_v / (denom_1 + denom_2);
 }
+
+float BalanceHeuristic(const float pdf, const float pdf_other) {
+  return pow(pdf, 2.0f) / (pow(pdf, 2.0f) + pow(pdf_other, 2.0f));
+}

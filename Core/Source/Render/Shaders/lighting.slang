@@ -51,7 +51,9 @@ float FloatHash(uint32_t x) {
   return (float(x) * (1.0f / 4294967295.0f));
 }
 
-float2 Random2(const uint seed) { return float2(FloatHash(seed), FloatHash(seed * 1664525U + 1013904223U)); }
+float2 UniformRandom2(const uint seed) {
+  return float2(FloatHash(seed), FloatHash(seed * 1664525U + 1013904223U));
+}
 
 float3 TransformFromNormalSpace(const float3 normal, const float3 local_dir) {
   const float3 up = abs(normal.y) < 0.999f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
@@ -59,7 +61,7 @@ float3 TransformFromNormalSpace(const float3 normal, const float3 local_dir) {
   const float3 tangent = normalize(cross(up, normal));
   const float3 bitangent = cross(normal, tangent);
 
-  return tangent * local_dir.x + normal * local_dir.y + bitangent * local_dir.z;
+  return normalize(tangent * local_dir.x + normal * local_dir.y + bitangent * local_dir.z);
 }
 
 float3 TransformToNormalSpace(const float3 normal, const float3 world_dir) {
@@ -68,23 +70,22 @@ float3 TransformToNormalSpace(const float3 normal, const float3 world_dir) {
   const float3 tangent = normalize(cross(up, normal));
   const float3 bitangent = cross(normal, tangent);
 
-  return float3(dot(world_dir, tangent), dot(world_dir, normal), dot(world_dir, bitangent));
+  return normalize(float3(dot(world_dir, tangent), dot(world_dir, normal), dot(world_dir, bitangent)));
 }
 
-float3 CosineWeightedHemisphere(const float3 normal, const float2 rand) {
-  const float r = rand.x;
+float3 SampleCosineWeightedHemisphere(const float3 normal, const float2 rand) {
+  const float r = sqrt(rand.x);
   const float theta = 2 * PI * rand.y;
 
   const float2 disk_point = r * float2(cos(theta), sin(theta));
 
-  const float3 local_dir =
-      float3(disk_point.x, sqrt(max(0.0f, 1.0f + dot(disk_point, -disk_point))), disk_point.y);
+  const float3 local_dir = float3(disk_point.x, sqrt(max(0.0f, 1.0f - r * r)), disk_point.y);
 
   return TransformFromNormalSpace(normal, local_dir);
 }
 
 // w_o away from surface
-float3 VNDF_GGX(const float3 normal, float3 w_o, const float roughness, const float2 rand) {
+float3 SampleVNDF_GGX(const float3 normal, float3 w_o, const float roughness, const float2 rand) {
   w_o = TransformToNormalSpace(normal, w_o);
   const float3 v = normalize(float3(w_o.x * roughness, w_o.y, w_o.z * roughness));
 
@@ -109,50 +110,22 @@ float3 SampleSpecularLight(float3 origin, const float3 view_dir, Material materi
                            inout uint32_t seed) {
   const float a2 = material.rough * material.rough;
   float3 reflectance;
-  float3 ray_dir;
 
-  if (true) {
-    const float3 micro_normal = VNDF_GGX(normal, -view_dir, material.rough, Random2(seed));
+  const float3 micro_normal = SampleVNDF_GGX(normal, -view_dir, material.rough, UniformRandom2(seed));
 
-    ray_dir = reflect(view_dir, micro_normal);
+  const float3 ray_dir = reflect(view_dir, micro_normal);
 
-    if (dot(normal, ray_dir) > 0.0f) {
-      const float3 f_0 = 0.16f * (material.reflect * material.reflect) * (1.0f - material.metallic) +
-                         material.albedo.rgb * material.metallic;
+  if (dot(normal, ray_dir) > 0.0f) {
+    const float3 f_0 = 0.16f * (material.reflect * material.reflect) * (1.0f - material.metallic) +
+                       material.albedo.rgb * material.metallic;
 
-      const float3 F = F_Schlick(f_0, dot(ray_dir, micro_normal));
-      const float G_1 = max(G_1_SmithGGX(-view_dir, normal, a2), 1e-6f);
-      const float G_2 = G_2_SmithGGX(ray_dir, -view_dir, normal, a2);
+    const float3 F = F_Schlick(f_0, dot(ray_dir, micro_normal));
+    const float G_1 = max(G_1_SmithGGX(-view_dir, normal, a2), 1e-6f);
+    const float G_2 = G_2_SmithGGX(ray_dir, -view_dir, normal, a2);
 
-      reflectance = F * saturate(G_2 / G_1);
-    } else {
-      return 0.0f;
-    }
+    reflectance = F * saturate(G_2 / G_1);
   } else {
-    const float2 uniform_rand_2 = Random2(seed);
-    const float phi = atan(material.rough * sqrt(uniform_rand_2.x / (1.0f - uniform_rand_2.x)));
-    const float theta = 2 * PI * uniform_rand_2.y;
-
-    const float3 micro_normal =
-        TransformFromNormalSpace(normal, float3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta)));
-
-    ray_dir = reflect(view_dir, micro_normal);
-
-    if (dot(normal, ray_dir) > 0.0f && dot(ray_dir, micro_normal) > 0.0f) {
-      const float3 f_0 = 0.16f * (material.reflect * material.reflect) * (1.0f - material.metallic) +
-                         material.albedo.rgb * material.metallic;
-
-      const float3 F = F_Schlick(f_0, dot(ray_dir, micro_normal));
-
-      const float G = G_2_SmithGGX(ray_dir, -view_dir, normal, a2);
-
-      const float weight =
-          abs(dot(-view_dir, micro_normal)) / max(dot(normal, -view_dir) * dot(normal, micro_normal), 1e-4f);
-
-      reflectance = F * G * weight;
-    } else {
-      return 0.0f;
-    }
+    return 0.0f;
   }
 
   float3 radiance = 0.0f;
@@ -163,17 +136,7 @@ float3 SampleSpecularLight(float3 origin, const float3 view_dir, Material materi
 
   if (res.hit) {
     material = material_arr[res.hit_material_index];
-    radiance += throughput * material.emmisive * material.albedo.rgb;
-
-    const Optional<uint32_t> hit_last_hash_set_index =
-        HashSetFind(PackTreeIndex(res.hit_tree_index), last_hash_set_key_arr, hash_set_header);
-    if (hit_last_hash_set_index.hasValue) {
-      const LightingData diffuse_data = last_diffuse_data_arr[hit_last_hash_set_index.value];
-      const LightingData specular_data = last_specular_data_arr[hit_last_hash_set_index.value];
-
-      radiance += throughput * material.albedo.rgb * (1.0f - material.metallic) *
-                  (diffuse_data.acc_lighting / diffuse_data.sample_count);
-    }
+    radiance += throughput * material.emissive * material.albedo.rgb;
   } else {
     radiance += throughput * SampleEnvironmentColor(ray_dir);
   }
@@ -181,59 +144,29 @@ float3 SampleSpecularLight(float3 origin, const float3 view_dir, Material materi
   return radiance;
 }
 
-float RaySphereIntersection(const float3 sphere_origin, const float sphere_radius, float3 ray_origin,
-                            const float3 ray_dir) {
-  ray_origin = ray_origin - sphere_origin;
-
-  const float a = 1.0f;
-  const float b = 2.0f * dot(ray_origin, ray_dir);
-  const float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
-
-  const float delta_2 = b * b - 4.0f * a * c;
-  if (delta_2 < 0.0f) {
-    return -1.0f;
-  }
-  const float delta = sqrt(delta_2);
-
-  const float t_0 = (-b - delta) / (2.0f * a);
-  const float t_1 = (-b + delta) / (2.0f * a);
-
-  return min(t_0, t_1);
-}
-
-float3 SampleDiffuseLight(float3 origin, float3 normal, Material material, const uint32_t max_bounce_count,
-                          inout uint32_t seed) {
+float3 BRDFSampleDiffuseLight(float3 origin, float3 normal, const uint32_t max_bounce_count,
+                              inout uint32_t seed) {
   float3 throughput = 1.0f;
   float3 radiance = 0.0f;
 
   for (uint32_t i = 0; i < max_bounce_count; i++) {
-    const float3 ray_dir = CosineWeightedHemisphere(normal, Random2(seed));
+    const float3 ray_dir = SampleCosineWeightedHemisphere(normal, UniformRandom2(seed));
 
     RaycastResult res;
     Raycast(origin, ray_dir, res);
 
     if (!res.hit) {
-      radiance += throughput * SampleEnvironmentColor(ray_dir);
+      // radiance += throughput * SampleEnvironmentColor(ray_dir);
       break;
     }
 
-    material = material_arr[res.hit_material_index];
+    const Material material = material_arr[res.hit_material_index];
     normal = res.hit_normal;
 
-    // lambert diffuse and cosine weighted sampling method's pdf cancel
-    radiance += throughput * material.emmisive * material.albedo.rgb;
+    radiance += throughput * material.emissive * material.albedo.rgb;
     throughput *= material.albedo.rgb * (1.0f - material.metallic);
 
-    if (all(throughput < 1e-2f) || material.emmisive != 0.0f) {
-      break;
-    }
-
-    const Optional<uint32_t> hit_hash_set_index =
-        HashSetFind(PackTreeIndex(res.hit_tree_index), last_hash_set_key_arr, hash_set_header);
-    if (hit_hash_set_index.hasValue) {
-      const LightingData diffuse_data = last_diffuse_data_arr[hit_hash_set_index.value];
-      radiance += (1.0f - material.metallic) * material.albedo.rgb *
-                  (diffuse_data.acc_lighting / max(diffuse_data.sample_count, 0.0f));
+    if (all(throughput < 1e-2f) || material.emissive != 0.0f) {
       break;
     }
 
@@ -323,8 +256,8 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
     {
       const uint32_t max_bounce_count = 1;
 
-      float3 diffuse_light_sample =
-          SampleDiffuseLight(ray_origin, res.hit_normal, material, max_bounce_count, seed);
+      const float3 diffuse_light_sample =
+          BRDFSampleDiffuseLight(ray_origin, res.hit_normal, max_bounce_count, seed);
 
       diffuse_data_arr[hash_set_index.value].sample_count += 1.0f;
       diffuse_data_arr[hash_set_index.value].acc_lighting_r += diffuse_light_sample.r;
@@ -332,7 +265,7 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
       diffuse_data_arr[hash_set_index.value].acc_lighting_b += diffuse_light_sample.b;
     }
 
-    {
+    if (false) {
       const float3 specular_light_sample =
           SampleSpecularLight(ray_origin, ray_dir, material, res.hit_normal, seed);
       specular_data_arr[hash_set_index.value].sample_count += 1.0f;

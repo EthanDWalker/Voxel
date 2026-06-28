@@ -3,6 +3,7 @@
 
 struct Editor {
   Core::Camera camera;
+  u32 material_index = 0;
 
   void StartUp();
 

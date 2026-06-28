@@ -5,7 +5,7 @@
 #include "Core/Render/types.h"
 
 namespace Core {
-void DebugDrawChunkBoundaries() {
+void DebugDrawQuads() {
   VulkanCommandBuffer &cmd = render_context->swapchain.GetActiveCommandBuffer();
 
   cmd.BeginDebugPass("chunk boundaries draw");
@@ -20,14 +20,14 @@ void DebugDrawChunkBoundaries() {
   cmd.BeginRendering({&render_context->swapchain.GetImage()}, nullptr, render_context->swapchain.extent,
                      false);
 
-  cmd.BindPipeline(render_context->debug_chunk_boundaries_pipeline);
+  cmd.BindPipeline(render_context->debug_quad_pipeline);
   cmd.BindDescriptors({
-      render_context->voxel_tree.descriptor,
+      render_context->emissive_descriptor,
       render_context->camera_descriptor[render_context->swapchain.frame_index],
       render_context->image_descriptor,
   });
 
-  cmd.Draw(64);
+  cmd.Draw(render_context->emissive_quad_buffer.cpu_append_count);
 
   cmd.EndRendering();
   cmd.EndDebugPass();

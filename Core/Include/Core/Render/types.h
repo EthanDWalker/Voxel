@@ -9,20 +9,20 @@ struct Material {
   Vec4f32 albedo;
   float rough;
   float metallic;
-  float emmisive;
+  float emissive;
   float reflect;
 };
 
-struct alignas(GPU_ALIGNMENT) ToneMapPushConstants {
+struct ToneMapPushConstants {
   f32 delta_time;
 };
 
-struct alignas(GPU_ALIGNMENT) FrameLuminanceData {
+struct FrameLuminanceData {
   f32 acc_log_luminance;
   f32 total_weight;
 };
 
-struct alignas(GPU_ALIGNMENT) ChunkAllocationInfo {
+struct ChunkAllocationInfo {
   Vec3u32 chunk_index;
   u32 lod;
   u32 alloc_leaf;
@@ -31,14 +31,27 @@ struct alignas(GPU_ALIGNMENT) ChunkAllocationInfo {
   u32 max_depth;
 };
 
-struct alignas(GPU_ALIGNMENT) VoxelVolume {
+struct AxisAlignedQuad {
+  Vec3f32 point_1;
+  u16 material_index;
+  u16 normal;
+  Vec3f32 point_2;
+  f32 area;
+};
+
+struct VoxelVolume {
   Vec3u32 min_tree_index;
   u32 depth;
   Vec3u32 max_tree_index;
   u32 material_index;
 };
 
-struct alignas(GPU_ALIGNMENT) LightingPushConstants {
+struct CmdVoxelVolumeFillPushConstants {
+  VoxelVolume volume;
+  u32 depth;
+};
+
+struct LightingPushConstants {
   f32 diffuse_alpha;
   f32 specular_alpha;
   u32 frame_number;

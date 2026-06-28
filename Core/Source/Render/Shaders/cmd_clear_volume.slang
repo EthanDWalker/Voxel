@@ -1,10 +1,11 @@
 #define VOXEL_TREE_ATOMIC
 #define VOXEL_TREE_SET_BINDING 0
+#include "Include/color.slang"
 #include "Include/voxel_tree.slang"
 
 void ClearIndexFromPtrStack(const uint32_t3 index, const uint32_t initial_level) {
   for (uint32_t level = initial_level; level >= initial_ptr_stack_depth; level--) {
-    const uint32_t ptr = ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth];
+    const uint32_t ptr = ptr_stack_mem[memory_index][level - initial_ptr_stack_depth];
     const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
     const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
@@ -18,7 +19,7 @@ void ClearIndexFromPtrStack(const uint32_t3 index, const uint32_t initial_level)
   }
 }
 
-[[numthreads(1, 1, 1)]]
+[[numthreads(4, 4, 4)]]
 void CMain(const uint32_t3 dispatch_id: SV_DispatchThreadID, const uniform VoxelVolume volume) {
   const uint32_t3 index = volume.min_tree_index + dispatch_id;
   if (any(index >= grid_n)) {
@@ -42,10 +43,13 @@ void CMain(const uint32_t3 dispatch_id: SV_DispatchThreadID, const uniform Voxel
   uint32_t local_index;
   TraverseTreeFromLevelPtr(ptr, level, node, is_empty, local_index, index);
 
-  const bool3 min_edge = index == volume.min_tree_index;
-  const bool3 max_edge = index == (volume.max_tree_index - 1);
-
   if (!is_empty) {
+    ptr = node.child_ptr_data.child_ptr + local_index;
+
+    const uint32_t leaf_page_index = ptr >> voxel_tree_header.page_size_exp;
+    const uint32_t leaf_page_offset = ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
+    voxel_tree_leaf[leaf_page_index][leaf_page_offset].material_index = 0;
+
     ClearIndexFromPtrStack(index, level);
   }
 }

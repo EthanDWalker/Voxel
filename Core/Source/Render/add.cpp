@@ -22,10 +22,9 @@ void VoxelizeChunk(const Vec3u32 index, const i32 seed, const u32 max_depth) {
   alloc_info.max_depth = max_depth;
 
   for (u32 depth = 1; depth < max_depth; depth++) {
-    const u32 page_offset = render_context->voxel_tree.branch_pages.size();
-    const u32 new_page_offset = header->branch_count >> SparseVoxelTree::PAGE_SIZE_EXP;
-
     render_context->voxel_tree.ResizeBranch(header->branch_count);
+    header->allocated_branch_count = render_context->voxel_tree.branch_pages.size()
+                                     << SparseVoxelTree::PAGE_SIZE_EXP;
 
     VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
       {
@@ -36,17 +35,7 @@ void VoxelizeChunk(const Vec3u32 index, const i32 seed, const u32 max_depth) {
         transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
             render_context->voxel_tree.tree_header_buffer);
 
-        for (u32 i = page_offset; i <= new_page_offset; i++) {
-          transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
-              *render_context->voxel_tree.branch_pages[i]);
-        }
-
         cmd.BindSubPass(transfer_pass);
-
-        for (u32 i = page_offset; i <= new_page_offset; i++) {
-          cmd.FillBuffer(*render_context->voxel_tree.branch_pages[i],
-                         render_context->voxel_tree.branch_pages[i]->size, 0);
-        }
 
         cmd.UploadBufferToBuffer(render_context->voxel_tree.tree_header_host_buffer,
                                  render_context->voxel_tree.tree_header_buffer,
@@ -101,26 +90,24 @@ void VoxelizeChunk(const Vec3u32 index, const i32 seed, const u32 max_depth) {
     });
   }
 
-  const u32 page_offset = render_context->voxel_tree.leaf_pages.size();
-  const u32 new_page_offset = header->leaf_count >> SparseVoxelTree::PAGE_SIZE_EXP;
-
   render_context->voxel_tree.ResizeLeaf(header->leaf_count);
+  header->allocated_leaf_count = render_context->voxel_tree.leaf_pages.size()
+                                 << SparseVoxelTree::PAGE_SIZE_EXP;
 
   VulkanContext::Submit([&](VulkanCommandBuffer &cmd) {
     {
       cmd.BeginDebugPass("svo allocate child mask transfer");
       VulkanSubPass<SubPassType::Transfer> transfer_pass;
-      for (u32 i = page_offset; i <= new_page_offset; i++) {
-        transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
-            *render_context->voxel_tree.leaf_pages[i]);
-      }
+      transfer_pass.AddDependency<DeviceResourceType::TransferSrc>(
+          render_context->voxel_tree.tree_header_host_buffer);
+      transfer_pass.AddDependency<DeviceResourceType::TransferDst>(
+          render_context->voxel_tree.tree_header_buffer);
 
       cmd.BindSubPass(transfer_pass);
 
-      for (u32 i = page_offset; i <= new_page_offset; i++) {
-        cmd.FillBuffer(*render_context->voxel_tree.leaf_pages[i],
-                       render_context->voxel_tree.leaf_pages[i]->size, 0);
-      }
+      cmd.UploadBufferToBuffer(render_context->voxel_tree.tree_header_host_buffer,
+                               render_context->voxel_tree.tree_header_buffer,
+                               render_context->voxel_tree.tree_header_buffer.size);
       cmd.EndDebugPass();
     }
 

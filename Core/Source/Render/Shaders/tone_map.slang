@@ -52,7 +52,7 @@ void CMain(const uint32_t2 pixel_index: SV_DispatchThreadID, const uniform PushC
 
   xyY_color.z = xyY_color.z / (9.6f * last_average_luminance);
 
-  xyY_color.z = saturate(TonemapACES(xyY_color.z));
+  xyY_color.z = TonemapACES(xyY_color.z);
 
   swapchain_image.Store(pixel_index, float4(LinearToSRGB(xyYToRGB(xyY_color)), 1.0f));
 }

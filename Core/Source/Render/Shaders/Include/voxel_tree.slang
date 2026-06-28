@@ -5,7 +5,7 @@ static const uint32_t CHILD_PTR_MASK = 0x7FFFFFFF;
 static const uint32_t IS_LEAF_BIT_OFFSET = 31;
 static const uint32_t IS_LEAF_BIT = 0x80000000;
 
-static const uint32_t PTR_STACK_SIZE = 3;
+static const uint32_t PTR_STACK_SIZE = 4;
 
 struct VoxelVolume {
   uint32_t3 min_tree_index;
@@ -41,7 +41,7 @@ struct Material {
   float4 albedo;
   float rough;
   float metallic;
-  float emmisive;
+  float emissive;
   float reflect;
 };
 
@@ -72,6 +72,14 @@ struct BaseTreeHeader<T>
 
   property uint32_t page_size_exp {
     get { return buffer.Load<uint32_t, 12>(); }
+  };
+
+  property uint32_t allocated_leaf_count {
+    get { return buffer.Load<uint32_t, 24>(); }
+  };
+
+  property uint32_t allocated_branch_count {
+    get { return buffer.Load<uint32_t, 28>(); }
   };
 };
 
@@ -143,7 +151,7 @@ static const float box_size = 1 << voxel_tree_header.box_size_exp;
 static const uint32_t grid_n = 1 << (voxel_tree_header.max_depth << 1);
 static const float voxel_size = FloatDivideBy2ToN(box_size, voxel_tree_header.max_depth << 1);
 static const uint32_t initial_ptr_stack_depth = voxel_tree_header.max_depth - PTR_STACK_SIZE;
-static groupshared uint32_t ray_ptr_stack_mem[64][PTR_STACK_SIZE];
+static groupshared uint32_t ptr_stack_mem[64][PTR_STACK_SIZE];
 static const uint32_t memory_index = spirv_asm {
         result:$$uint = OpLoad builtin(LocalInvocationIndex:uint);
     };
@@ -289,7 +297,7 @@ void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout Br
     is_empty = ((node.child_mask >> local_index) & 0b1) == 0;
 
     if (level >= initial_ptr_stack_depth) {
-      ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth] = ptr;
+      ptr_stack_mem[memory_index][level - initial_ptr_stack_depth] = ptr;
     }
 
     if (is_empty || node.child_ptr_data.is_leaf)
@@ -351,7 +359,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
 
     if (invalidated_stack_size < PTR_STACK_SIZE) {
       level = initial_ptr_stack_depth + ((PTR_STACK_SIZE - 1) - invalidated_stack_size);
-      ptr = ray_ptr_stack_mem[memory_index][level - initial_ptr_stack_depth];
+      ptr = ptr_stack_mem[memory_index][level - initial_ptr_stack_depth];
     } else {
       level = 1;
       ptr = GetLocalIndex(current_index, 0);

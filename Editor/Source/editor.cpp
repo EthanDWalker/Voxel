@@ -125,7 +125,6 @@ void Editor::Run() {
       }
 
       if (ImGui::BeginPopup("Material Settings")) {
-        static u32 material_index = 0;
         ImGui::Text("Material Index: %d", material_index);
         ImGui::SameLine();
         if (ImGui::Button("-")) {
@@ -147,7 +146,7 @@ void Editor::Run() {
         ImGui::SliderFloat(
             "reflection", &Core::render_context->voxel_tree.material_arr[material_index].reflect, 0.0f, 1.0f);
         ImGui::SliderFloat(
-            "emmision", &Core::render_context->voxel_tree.material_arr[material_index].emmisive, 0.0f, 5.0f);
+            "emission", &Core::render_context->voxel_tree.material_arr[material_index].emissive, 0.0f, 5.0f);
 
         Core::VulkanBuffer<Core::BufferType::StagingBuffer> staging_buffer = "material staging buffer";
         staging_buffer.Create(sizeof(Core::Material));
@@ -203,12 +202,12 @@ void Editor::Run() {
               .min_tree_index = Core::GetTreeIndex(result.hit_position - 5.0f),
               .depth = Core::SparseVoxelTree::MAX_DEPTH,
               .max_tree_index = Core::GetTreeIndex(result.hit_position + 5.0f),
-              .material_index = 0,
+              .material_index = this->material_index,
           });
         });
       }
 
-      if (Core::InputContext::GetHeld(Core::Input::MOUSE_LEFT)) {
+      if (Core::InputContext::GetPressed(Core::Input::MOUSE_LEFT)) {
         Core::Raycast query{};
         query.origin = camera.position;
 
@@ -277,10 +276,6 @@ void Editor::Run() {
 
     Core::Frame(camera);
 
-    if (Core::InputContext::GetHeld(Core::Input::B)) {
-      Core::DebugDrawChunkBoundaries();
-    }
-
     Core::VulkanCommandBuffer &cmd = Core::render_context->swapchain.GetActiveCommandBuffer();
     {
       cmd.BeginDebugPass("ui render");
@@ -297,6 +292,10 @@ void Editor::Run() {
       cmd.EndRendering();
 
       cmd.EndDebugPass();
+    }
+
+    if (Core::InputContext::GetHeld(Core::Input::B)) {
+      Core::DebugDrawQuads();
     }
 
     Core::EndFrame(resize);

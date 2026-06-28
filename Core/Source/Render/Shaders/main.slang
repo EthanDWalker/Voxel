@@ -75,11 +75,9 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
   if (res.hit) {
     const Optional<uint32_t> hash_set_index =
         HashSetFind(PackTreeIndex(res.hit_tree_index), hash_set_key_arr, hash_set_header);
-    const Optional<uint32_t> last_hash_set_index =
-        HashSetFind(PackTreeIndex(res.hit_tree_index), last_hash_set_key_arr, hash_set_header);
 
     const Material hit_material = material_arr[res.hit_material_index];
-    acc += hit_material.albedo.rgb * hit_material.emmisive;
+    acc += hit_material.albedo.rgb * hit_material.emissive;
 
     {
       LightingData diffuse_data;
@@ -109,7 +107,8 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
 
       acc += hit_material.albedo.rgb * (1.0f - hit_material.metallic) *
              (diffuse_data.acc_lighting / max(diffuse_data.sample_count, 1.0f));
-      acc += hit_material.albedo.rgb * (specular_data.acc_lighting / max(specular_data.sample_count, 1.0f));
+      // acc += hit_material.albedo.rgb * (specular_data.acc_lighting /
+      // max(specular_data.sample_count, 1.0f));
     }
   } else {
     acc = SampleEnvironmentColor(ray_dir);

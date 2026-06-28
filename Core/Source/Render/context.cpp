@@ -21,6 +21,21 @@ void RenderContext::RecreatePipelines() {
 void RenderContext::CreatePipelines() {
   ZoneScoped;
   {
+    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Graphic>();
+    pipeline_builder.Default();
+    pipeline_builder.SetNoDepthTest();
+    pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
+    pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
+    pipeline_builder.AddDescriptorLayout(emissive_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(camera_descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(image_descriptor_layout);
+    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "debug_quad.slang",
+                                std::filesystem::path(SHADER_DIR) / "debug_quad.slang",
+                                std::filesystem::path(SHADER_DIR) / "debug_quad.slang");
+    PipelineBuildManager::Build(pipeline_builder, debug_quad_pipeline);
+  }
+
+  {
     auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
     pipeline_builder.AddDescriptorLayout(image_descriptor_layout);
     pipeline_builder.AddDescriptorLayout(camera_descriptor_layout);
@@ -37,6 +52,7 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.AddDescriptorLayout(camera_descriptor_layout);
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
     pipeline_builder.AddDescriptorLayout(light_hash_set.descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(emissive_descriptor_layout);
     pipeline_builder.AddPushConstantRange(sizeof(LightingPushConstants));
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "lighting.slang");
     PipelineBuildManager::Build(pipeline_builder, lighting_pipeline);
@@ -62,8 +78,9 @@ void RenderContext::CreatePipelines() {
   {
     auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Compute>();
     pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
+    pipeline_builder.AddDescriptorLayout(emissive_descriptor_layout);
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "cmd_fill_volume.slang");
-    pipeline_builder.AddPushConstantRange(sizeof(VoxelVolume));
+    pipeline_builder.AddPushConstantRange(sizeof(CmdVoxelVolumeFillPushConstants));
     PipelineBuildManager::Build(pipeline_builder, fill_volume_pipeline);
   }
 
@@ -83,21 +100,6 @@ void RenderContext::CreatePipelines() {
     pipeline_builder.AddPushConstantRange(sizeof(ToneMapPushConstants));
     pipeline_builder.SetShader(std::filesystem::path(SHADER_DIR) / "tone_map.slang");
     PipelineBuildManager::Build(pipeline_builder, tone_map_pipeline);
-  }
-
-  {
-    auto &pipeline_builder = PipelineBuildManager::New<PipelineType::Graphic>();
-    pipeline_builder.Default();
-    pipeline_builder.SetNoDepthTest();
-    pipeline_builder.SetCullMode(VK_CULL_MODE_NONE, {});
-    pipeline_builder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-    pipeline_builder.AddDescriptorLayout(voxel_tree.descriptor_layout);
-    pipeline_builder.AddDescriptorLayout(camera_descriptor_layout);
-    pipeline_builder.AddDescriptorLayout(image_descriptor_layout);
-    pipeline_builder.SetShaders(std::filesystem::path(SHADER_DIR) / "debug_chunk_boundaries.slang",
-                                std::filesystem::path(SHADER_DIR) / "debug_chunk_boundaries.slang",
-                                std::filesystem::path(SHADER_DIR) / "debug_chunk_boundaries.slang");
-    PipelineBuildManager::Build(pipeline_builder, debug_chunk_boundaries_pipeline);
   }
 
   {
@@ -134,7 +136,7 @@ RenderContext::RenderContext(const RenderSpec &spec) {
   }
 
   light_hash_set.Create(((main_image.height * main_image.width) >> INDIRECT_LIGHT_SCALE_EXP) * 3,
-                                 VK_SHADER_STAGE_COMPUTE_BIT);
+                        VK_SHADER_STAGE_COMPUTE_BIT);
 
   raycast_results_buffer.Create(sizeof(RaycastResult) * spec.max_raycasts,
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
@@ -156,10 +158,21 @@ RenderContext::RenderContext(const RenderSpec &spec) {
     DescriptorBuilder::Reset();
   }
 
+  emissive_quad_buffer.Create(10'000, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {
     frame_luminance_data_buffer[i].Create(1, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
   }
+
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&emissive_quad_buffer);
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr);
+  DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
+                                 emissive_descriptor_layout);
+  DescriptorBuilder::BuildSet(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
+                              emissive_descriptor_layout, emissive_descriptor);
+  DescriptorBuilder::Reset();
 
   DescriptorBuilder::Bind<DeviceResourceType::RWStorageImage>(&main_image);
   DescriptorBuilder::Bind<DeviceResourceType::RWStorageImage>(&beam_prepass_image);

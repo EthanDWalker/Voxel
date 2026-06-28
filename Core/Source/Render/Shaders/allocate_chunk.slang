@@ -64,7 +64,7 @@ void AllocateLeaf(const uint32_t3 tree_index, const LeafNode leaf_node) {
 
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-  voxel_tree_leaf[page_index][page_offset] = leaf_node;
+  voxel_tree_leaf[page_index][page_offset]= leaf_node;
 }
 
 [numthreads(4, 4, 4)]
