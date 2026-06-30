@@ -143,7 +143,6 @@ void Frame(Camera &camera) {
         render_context->light_hash_set.swapped_data[resource_index].specular_data_buffer);
     pass.AddDependency<DeviceResourceType::Buffer>(
         render_context->light_hash_set.swapped_data[last_resource_index].specular_data_buffer);
-    pass.AddDependency<DeviceResourceType::Buffer>(render_context->emissive_quad_buffer);
 
     cmd.BindSubPass(pass);
 
@@ -153,7 +152,6 @@ void Frame(Camera &camera) {
         render_context->camera_descriptor[resource_index],
         render_context->voxel_tree.descriptor,
         render_context->light_hash_set.swapped_data[resource_index].descriptor,
-        render_context->emissive_descriptor,
     });
     LightingPushConstants push_constants{};
     push_constants.diffuse_alpha = render_context->diffuse_light_alpha;

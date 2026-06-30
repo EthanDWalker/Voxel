@@ -9,16 +9,8 @@
 #include <memory>
 
 namespace Core {
-const u32 VERTEX_BUFFER_BINDING = 0;
-const u32 ALBEDO_IMAGE_BINDING = 1;
-
 const u32 TREE_BUFFER_BINDING = 0;
 const u32 TREE_LEAF_BUFFER_BINDING = 1;
-
-struct AllocatePushConstants {
-  u32 depth;
-  u32 leaf;
-};
 
 SparseVoxelTree::SparseVoxelTree() {
   ZoneScoped;

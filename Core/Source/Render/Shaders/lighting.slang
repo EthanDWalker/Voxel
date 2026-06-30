@@ -135,10 +135,44 @@ float3 SampleSpecularLight(float3 origin, const float3 view_dir, Material materi
   Raycast(origin, ray_dir, res);
 
   if (res.hit) {
-    material = material_arr[res.hit_material_index];
+    material = material_arr[res.hit_node.material_index];
     radiance += throughput * material.emissive * material.albedo.rgb;
   } else {
     radiance += throughput * SampleEnvironmentColor(ray_dir);
+  }
+
+  return radiance;
+}
+
+float3 LightSampleDiffuseLight(const float3 origin, const float3 normal, inout uint32_t seed) {
+  const float3 bottom_right = float3(-5.0f, 0.0f, -5.0f);
+  const float3 edge_1 = float3(10.0f, 0.0f, 0.0f);
+  const float3 edge_2 = float3(0.0f, 0.0f, 10.0f);
+  const float3 light_normal = cross(edge_1, edge_2);
+  const float light_area = length(cross(edge_1, edge_2));
+
+  const float2 rand = UniformRandom2(seed);
+
+  const float3 sample_point = bottom_right + edge_1 * rand.x + edge_2 * rand.y;
+
+  const float3 sample_dir = normalize(sample_point - origin);
+  const float sample_dist = length(sample_point - origin);
+
+  const float dir_dot_normal = dot(normal, sample_dir);
+  const float dir_dot_quad = dot(-sample_dir, light_normal);
+
+  if (dir_dot_quad <= 0.0f || dir_dot_normal <= 0.0f) {
+    return 0.0f;
+  }
+
+  RaycastResult res;
+  Raycast(origin, sample_dir, res, sample_dist);
+
+  float3 radiance = 0.0f;
+  if (!res.hit) {
+    const Material material = material_arr[0];
+    radiance += (material.albedo.rgb * material.emissive * light_area * dir_dot_normal * dir_dot_quad) /
+                (PI * sample_dist * sample_dist);
   }
 
   return radiance;
@@ -156,11 +190,11 @@ float3 BRDFSampleDiffuseLight(float3 origin, float3 normal, const uint32_t max_b
     Raycast(origin, ray_dir, res);
 
     if (!res.hit) {
-      // radiance += throughput * SampleEnvironmentColor(ray_dir);
+      radiance += throughput * SampleEnvironmentColor(ray_dir);
       break;
     }
 
-    const Material material = material_arr[res.hit_material_index];
+    const Material material = material_arr[res.hit_node.material_index];
     normal = res.hit_normal;
 
     radiance += throughput * material.emissive * material.albedo.rgb;
@@ -189,7 +223,6 @@ struct PushConstants {
 void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushConstants info) {
   uint32_t2 image_size;
   image.GetDimensions(image_size.x, image_size.y);
-  image_size = image_size >> INDIRECT_PREPASS_SCALE_EXP;
 
   if (all(image_size <= dispatch_id))
     return;
@@ -198,7 +231,7 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
       mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
           PerspectiveReverseZInverse(1.0f, 2.0f, camera.fov_y, camera.aspect_ratio));
 
-  const float3 ray_dir = GetPixelRayDir(dispatch_id, image_size, inv_view_proj);
+  const float3 ray_dir = GetPixelRayDir(dispatch_id << INDIRECT_PREPASS_SCALE_EXP, image_size, inv_view_proj);
 
   const float t = SampleBeamImage(dispatch_id << INDIRECT_PREPASS_SCALE_EXP, beam_image);
 
@@ -251,10 +284,10 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
     uint32_t seed = Hash(res.leaf_ptr ^ ((info.frame_number + 1) * 9781u) ^
                          ((dispatch_id.x + 1) * (dispatch_id.y + 1) * 32197u));
 
-    const Material material = material_arr[res.hit_material_index];
+    const Material material = material_arr[res.hit_node.material_index];
 
     {
-      const uint32_t max_bounce_count = 1;
+      const uint32_t max_bounce_count = 5;
 
       const float3 diffuse_light_sample =
           BRDFSampleDiffuseLight(ray_origin, res.hit_normal, max_bounce_count, seed);

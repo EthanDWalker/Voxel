@@ -4,7 +4,6 @@
 #include "Core/Render/add.h"
 #include "Core/Render/commands.h"
 #include "Core/Render/context.h"
-#include "Core/Render/debug.h"
 #include "Core/Render/frame.h"
 #include "Core/Render/sparse_voxel_tree.h"
 #include "Core/Render/types.h"
@@ -37,8 +36,8 @@ void Editor::StartUp() {
   Core::SparseVoxelTree::TreeHeader *tree_header =
       (Core::SparseVoxelTree::TreeHeader *)tree.tree_header_host_buffer.host_address;
 
-  Core::Log("branch voxel count {} (pages {})", tree_header->branch_count, tree.branch_pages.size());
-  Core::Log("leaf count {} (pages {})", tree_header->leaf_count, tree.leaf_pages.size());
+  Core::Log("branch node count {} (pages {})", tree_header->branch_count, tree.branch_pages.size());
+  Core::Log("leaf node count {} (pages {})", tree_header->leaf_count, tree.leaf_pages.size());
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -292,10 +291,6 @@ void Editor::Run() {
       cmd.EndRendering();
 
       cmd.EndDebugPass();
-    }
-
-    if (Core::InputContext::GetHeld(Core::Input::B)) {
-      Core::DebugDrawQuads();
     }
 
     Core::EndFrame(resize);

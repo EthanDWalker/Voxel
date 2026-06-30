@@ -7,6 +7,11 @@ static const uint32_t IS_LEAF_BIT = 0x80000000;
 
 static const uint32_t PTR_STACK_SIZE = 4;
 
+enum class VoxelTreeNodeType {
+  Branch,
+  Leaf,
+};
+
 struct VoxelVolume {
   uint32_t3 min_tree_index;
   uint32_t depth;
@@ -14,7 +19,7 @@ struct VoxelVolume {
   uint32_t material_index;
 
   bool Contains(const uint32_t3 tree_index) {
-    return all(tree_index >= min_tree_index && tree_index < max_tree_index);
+    return all(tree_index >= min_tree_index && tree_index <= max_tree_index);
   }
 };
 
@@ -35,6 +40,7 @@ struct ChildPtrData {
 struct BranchNode {
   uint64_t child_mask;
   ChildPtrData child_ptr_data;
+  float luminance;
 }
 
 struct Material {
@@ -48,10 +54,38 @@ struct Material {
 struct AtomicBranchNode {
   Atomic<uint64_t> child_mask;
   Atomic<uint32_t> child_ptr_data;
+  Atomic<float> luminance;
+};
+
+static const uint32_t MATERIAL_INDEX_MASK = (1 << 10) - 1;
+static const uint32_t VISIBILITY_MASK_OFFSET = 10;
+
+static const uint32_t VISIBILITY_DIRECTION_COUNT = 6;
+static const int32_t3 visibility_direction_arr[VISIBILITY_DIRECTION_COUNT] = {
+  // clang-format off
+  int32_t3(-1, 0, 0),
+  int32_t3(1, 0, 0),
+  int32_t3(0, -1, 0),
+  int32_t3(0, 1, 0),
+  int32_t3(0, 0, -1),
+  int32_t3(0, 0, 1),
+  // clang-format on
 };
 
 struct LeafNode {
-  uint16_t material_index;
+  // 6 visility mask
+  // 10 material index
+  uint16_t data;
+
+  property uint32_t material_index {
+    get { return data & MATERIAL_INDEX_MASK; }
+    set { data = (uint16_t)((data & ~MATERIAL_INDEX_MASK) | (newValue & MATERIAL_INDEX_MASK)); }
+  };
+
+  property uint32_t visibility_mask {
+    get { return data >> VISIBILITY_MASK_OFFSET; }
+    set { data = (uint16_t)((data & MATERIAL_INDEX_MASK) | (newValue << VISIBILITY_MASK_OFFSET)); }
+  };
 };
 
 struct BaseTreeHeader<T>
@@ -316,7 +350,7 @@ struct RaycastResult {
   float t;
   uint32_t3 hit_tree_index;
   uint32_t leaf_ptr;
-  uint32_t hit_material_index;
+  LeafNode hit_node;
   uint32_t hit_level;
   bool hit;
 };
@@ -395,7 +429,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
   const LeafNode leaf_node = voxel_tree_leaf[page_index][page_offset];
-  result.hit_material_index = leaf_node.material_index;
+  result.hit_node = leaf_node;
   result.leaf_ptr = ptr;
 
   const float3 voxel_center = GetWorldPositionCenter(result.hit_tree_index, result.hit_level);
@@ -408,42 +442,47 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
            : (abs_hit_offset.y > abs_hit_offset.z ? float3(0.0f, 1.0f, 0.0f) : float3(0.0f, 0.0f, 1.0f)));
 }
 
+#else
+
+#ifdef VOXEL_TREE_READ_WRITE
+
+void AllocateNode(const uint32_t3 index, const uint32_t depth, const VoxelTreeNodeType type) {
+  uint32_t ptr = GetLocalIndex(index, 0);
+
+  for (uint32_t i = 1; i < depth; i++) {
+    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+
+    const uint32_t local_index = GetLocalIndex(index, i);
+
+    const ChildPtrData child_ptr_data =
+        ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
+
+    if (child_ptr_data.is_leaf) {
+      break;
+    } else {
+      ptr = child_ptr_data.child_ptr + local_index;
+    }
+  }
+
+  const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
+  const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
+
+  const uint32_t local_index = GetLocalIndex(index, depth);
+
+  const uint64_t child_mask = uint64_t(1) << local_index;
+  const uint64_t ret = voxel_tree[page_index][page_offset].child_mask.or(child_mask);
+
+  if (ret == 0) {
+    if (type == VoxelTreeNodeType::Leaf) {
+      voxel_tree[page_index][page_offset].child_ptr_data =
+          voxel_tree_header.AllocateLeafVoxels(64) | IS_LEAF_BIT;
+    } else {
+      voxel_tree[page_index][page_offset].child_ptr_data = voxel_tree_header.AllocateBranchVoxels(64);
+    }
+  }
+}
+
 #endif
 
-static const int32_t3 offset_masks[26] = {
-  // top
-  int32_t3(0, 1, 0),
-  int32_t3(1, 1, 0),
-  int32_t3(-1, 1, 0),
-  int32_t3(0, 1, 1),
-  int32_t3(0, 1, -1),
-
-  int32_t3(1, 1, -1),
-  int32_t3(1, 1, 1),
-  int32_t3(-1, 1, -1),
-  int32_t3(-1, 1, 1),
-
-  // middle (no (0, 0, 0))
-  int32_t3(1, 0, 0),
-  int32_t3(-1, 0, 0),
-  int32_t3(0, 0, 1),
-  int32_t3(0, 0, -1),
-
-  int32_t3(1, 0, -1),
-  int32_t3(1, 0, 1),
-  int32_t3(-1, 0, -1),
-  int32_t3(-1, 0, 1),
-
-  // bottom
-  int32_t3(0, -1, 0),
-  int32_t3(1, -1, 0),
-  int32_t3(-1, -1, 0),
-  int32_t3(0, -1, 1),
-  int32_t3(0, -1, -1),
-
-  int32_t3(1, -1, -1),
-  int32_t3(1, -1, 1),
-  int32_t3(-1, -1, -1),
-  int32_t3(-1, -1, 1),
-};
-
+#endif

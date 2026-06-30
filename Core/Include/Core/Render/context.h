@@ -47,8 +47,6 @@ struct RenderContext {
   VulkanPipeline<PipelineType::Compute> chunk_allocate_pipeline;
   VulkanPipeline<PipelineType::Compute> tone_map_pipeline;
 
-  VulkanPipeline<PipelineType::Graphic> debug_quad_pipeline;
-
   VulkanDescriptorLayout image_descriptor_layout;
   VulkanDescriptor image_descriptor;
   VulkanImage<ImageType::Planar> main_image;

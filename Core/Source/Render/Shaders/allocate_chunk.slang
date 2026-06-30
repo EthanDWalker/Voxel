@@ -13,40 +13,6 @@ struct ChunkAllocationInfo {
   uint32_t max_depth;
 };
 
-void Allocate(const uint32_t3 index, const uint32_t depth, const bool leaf) {
-  uint32_t ptr = GetLocalIndex(index, 0);
-
-  for (uint32_t i = 1; i < depth; i++) {
-    const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-    const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-    const uint32_t local_index = GetLocalIndex(index, i);
-
-    const ChildPtrData child_ptr_data =
-        ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
-
-    if (child_ptr_data.is_leaf) {
-      break;
-    } else {
-      ptr = child_ptr_data.child_ptr + local_index;
-    }
-  }
-
-  const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-  const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-  const uint32_t local_index = GetLocalIndex(index, depth);
-
-  if (voxel_tree[page_index][page_offset].child_mask.or(uint64_t(1) << local_index) == 0) {
-    if (leaf) {
-      voxel_tree[page_index][page_offset].child_ptr_data =
-          voxel_tree_header.AllocateLeafVoxels(64) | IS_LEAF_BIT;
-    } else {
-      voxel_tree[page_index][page_offset].child_ptr_data = voxel_tree_header.AllocateBranchVoxels(64);
-    }
-  }
-}
-
 void AllocateLeaf(const uint32_t3 tree_index, const LeafNode leaf_node) {
   uint32_t local_index = GetLocalIndex(tree_index, 0);
   uint32_t ptr = local_index;
@@ -64,7 +30,7 @@ void AllocateLeaf(const uint32_t3 tree_index, const LeafNode leaf_node) {
 
   const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
   const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-  voxel_tree_leaf[page_index][page_offset]= leaf_node;
+  voxel_tree_leaf[page_index][page_offset] = leaf_node;
 }
 
 [numthreads(4, 4, 4)]
@@ -79,20 +45,28 @@ void CMain(const int32_t3 dispatch_id: SV_DispatchThreadID, const uniform ChunkA
     return;
   }
 
-  if (world_position.y >= 0.0f) {
+  if (index.y > grid_n / 2) {
     return;
   }
 
   if (info.color == true) {
-    LeafNode node;
+    LeafNode node = {};
     node.material_index = 1;
+    uint32_t visibility_mask = 0;
+    for (uint32_t i = 0; i < VISIBILITY_DIRECTION_COUNT; i++) {
+      const uint32_t3 offseted_index = visibility_direction_arr[i] + index;
+      if (offseted_index.y > grid_n / 2 || any(offseted_index == 0 || offseted_index == grid_n - 1)) {
+        visibility_mask |= 1 << i;
+      }
+    }
+    node.visibility_mask = visibility_mask;
 
     AllocateLeaf(index, node);
   } else {
     if (info.alloc_leaf == true) {
-      Allocate(index, info.lod, true);
+      AllocateNode(index, info.lod, VoxelTreeNodeType::Leaf);
     } else if (WaveIsFirstLane()) {
-      Allocate(index, info.lod, false);
+      AllocateNode(index, info.lod, VoxelTreeNodeType::Branch);
     }
   }
 }

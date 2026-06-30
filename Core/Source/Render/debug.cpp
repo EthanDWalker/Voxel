@@ -4,32 +4,4 @@
 #include "Core/Render/context.h"
 #include "Core/Render/types.h"
 
-namespace Core {
-void DebugDrawQuads() {
-  VulkanCommandBuffer &cmd = render_context->swapchain.GetActiveCommandBuffer();
-
-  cmd.BeginDebugPass("chunk boundaries draw");
-
-  VulkanSubPass<SubPassType::Graphic> pass;
-  pass.AddDependency<DeviceResourceType::ColorAttachment>(render_context->swapchain.GetImage());
-  pass.AddDependency<DeviceResourceType::Buffer>(
-      render_context->camera_buffer[render_context->swapchain.frame_index]);
-
-  cmd.BindSubPass(pass);
-
-  cmd.BeginRendering({&render_context->swapchain.GetImage()}, nullptr, render_context->swapchain.extent,
-                     false);
-
-  cmd.BindPipeline(render_context->debug_quad_pipeline);
-  cmd.BindDescriptors({
-      render_context->emissive_descriptor,
-      render_context->camera_descriptor[render_context->swapchain.frame_index],
-      render_context->image_descriptor,
-  });
-
-  cmd.Draw(render_context->emissive_quad_buffer.cpu_append_count);
-
-  cmd.EndRendering();
-  cmd.EndDebugPass();
-};
-}; // namespace Core
+namespace Core {}; // namespace Core

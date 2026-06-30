@@ -13,8 +13,8 @@ struct SparseVoxelTree {
 
   static const u32 MAX_PAGES = 100'000;
   static const u32 MAX_DEPTH = 5;
-  // material index stored as 16 bit unsigned int
-  static const u32 MAX_MATERIALS = Min(1024, 1 << 16);
+  // material index stored as 10 bit unsigned int
+  static const u32 MAX_MATERIALS = Min(1024, 1 << 10);
 
   static const u32 PAGE_SIZE_EXP = 17;
   static const u32 PAGE_SIZE = 1 << PAGE_SIZE_EXP;
@@ -27,10 +27,13 @@ struct SparseVoxelTree {
   struct BranchNode {
     u64 child_mask;
     u32 child_ptr;
+    f32 luminance;
   };
 
   struct LeafNode {
-    u16 material_index;
+    // 6 bit visibility mask
+    // 10 uint material index
+    u16 data;
   };
 
   struct alignas(GPU_ALIGNMENT) TreeHeader {
