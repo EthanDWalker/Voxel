@@ -50,94 +50,6 @@ float3 GetPixelRayDir(const uint32_t2 pixel_index, const uint32_t2 image_size, c
   return normalize(pixel_center_world.xyz / pixel_center_world.w - camera.position);
 }
 
-void RaycastTest(const float3 ray_origin, float3 ray_dir, out RaycastResult result,
-                 const float t_max = 1e10f) {
-  result.hit = false;
-  result.t = 0.0f;
-  result.iterations = 0;
-  ray_dir += 1e-4f;
-  float ray_t_min, ray_t_max;
-  const bool intersect =
-      RayAABBIntersect(ray_dir, ray_origin, voxel_tree_header.min_bound * (1.0f - 1e-5f),
-                       (voxel_tree_header.min_bound + box_size) * (1.0f - 1e-5f), ray_t_min, ray_t_max);
-  if (!intersect) {
-    return;
-  }
-
-  ray_t_min = max(ray_t_min, 0.0f);
-  result.t += ray_t_min;
-
-  float3 position = ray_origin + ray_dir * ray_t_min;
-
-  const float3 inv_ray_dir = 1.0f / ray_dir;
-  const float3 ray_dir_step = step(0.0f, ray_dir);
-  const int32_t3 voxel_step = sign(ray_dir);
-
-  uint32_t3 current_index = GetTreeIndex(position);
-
-  uint32_t3 last_index = 0xFFFFFFFF;
-  bool is_empty = true;
-  BranchNode node;
-  uint32_t local_index;
-  uint32_t ptr;
-  uint32_t level;
-
-  while (all(position >= voxel_tree_header.min_bound) &&
-         all(position <= (voxel_tree_header.min_bound + box_size))) {
-    const uint32_t3 index_diff = last_index ^ current_index;
-    const uint32_t invalidated_stack_size = firstbithigh(index_diff.x | index_diff.y | index_diff.z) >> 1;
-
-    if (invalidated_stack_size < PTR_STACK_SIZE) {
-      level = initial_ptr_stack_depth + ((PTR_STACK_SIZE - 1) - invalidated_stack_size);
-      ptr = ptr_stack_mem[memory_index][level - initial_ptr_stack_depth];
-    } else {
-      level = 1;
-      ptr = GetLocalIndex(current_index, 0);
-    }
-
-    TraverseTreeFromLevelPtr(ptr, level, node, is_empty, local_index, current_index);
-
-    if ((!is_empty && node.luminance != 0.0f) || result.t > t_max) {
-      break;
-    }
-
-    position = StepTreeRay(ray_dir_step, ray_dir, inv_ray_dir, voxel_step, position, current_index,
-                           node.child_mask, local_index, level, result.t);
-
-    last_index = current_index;
-    current_index = GetTreeIndex(position);
-
-    result.iterations++;
-  }
-
-  if (is_empty) {
-    result.hit = false;
-    return;
-  }
-  result.hit = true;
-
-  result.hit_position = position;
-  result.hit_tree_index = current_index;
-  result.hit_level = level;
-
-  ptr = node.child_ptr_data.child_ptr + local_index;
-  const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
-  const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
-
-  const LeafNode leaf_node = voxel_tree_leaf[page_index][page_offset];
-  result.hit_node = leaf_node;
-  result.leaf_ptr = ptr;
-
-  const float3 voxel_center = GetWorldPositionCenter(result.hit_tree_index, result.hit_level);
-  const float3 hit_offset = (result.hit_position - voxel_center);
-  const float3 abs_hit_offset = abs(result.hit_position - voxel_center);
-  result.hit_normal =
-      sign(hit_offset) *
-      (abs_hit_offset.x > abs_hit_offset.y && abs_hit_offset.x > abs_hit_offset.z
-           ? float3(1.0f, 0.0f, 0.0f)
-           : (abs_hit_offset.y > abs_hit_offset.z ? float3(0.0f, 1.0f, 0.0f) : float3(0.0f, 0.0f, 1.0f)));
-}
-
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
@@ -159,10 +71,13 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
   RaycastResult res;
   Raycast(ray_origin + t * ray_dir, ray_dir, res);
 
+  const float hit_distance =
+      length(GetWorldPositionCenter(res.hit_tree_index, res.hit_level) - camera.position);
+
   float3 acc = 0.0f;
   if (res.hit) {
-    const Optional<uint32_t> hash_set_index =
-        HashSetFind(PackTreeIndex(res.hit_tree_index), hash_set_key_arr, hash_set_header);
+    const Optional<uint32_t> hash_set_index = HashSetFind(
+        PackTreeIndex(res.hit_tree_index & GetLodTreeMask(hit_distance)), hash_set_key_arr, hash_set_header);
 
     const Material hit_material = material_arr[res.hit_node.material_index];
     acc += hit_material.albedo.rgb * hit_material.emissive;
@@ -182,12 +97,18 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
         RaycastResult lighting_res;
         Raycast(ray_origin + indirect_t * indirect_light_dir, indirect_light_dir, lighting_res);
 
+        const float light_hit_distance = length(
+            GetWorldPositionCenter(lighting_res.hit_tree_index, lighting_res.hit_level) - camera.position);
         const Optional<uint32_t> closest_hash_set_index =
-            HashSetFind(PackTreeIndex(lighting_res.hit_tree_index), hash_set_key_arr, hash_set_header);
+            HashSetFind(PackTreeIndex(lighting_res.hit_tree_index & GetLodTreeMask(light_hit_distance)),
+                        hash_set_key_arr, hash_set_header);
 
         if (closest_hash_set_index.hasValue) {
           diffuse_data = diffuse_data_arr[closest_hash_set_index.value];
           specular_data = diffuse_data_arr[closest_hash_set_index.value];
+        } else {
+          diffuse_data = {};
+          specular_data = {};
         }
       }
 

@@ -207,9 +207,7 @@ float SampleBeamImage(const uint32_t2 main_image_location, const RWTexture2D<flo
   float t = 0.0f;
   if (all(is_whole)) {
     t = beam_image.Load(beam_image_location);
-    t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
-    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
-    t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
+    t *= 0.99f;
   } else if (is_whole.x) {
     t = beam_image.Load(beam_image_location);
     t = min(t, beam_image.Load(beam_image_location + int32_t2(0, 1)));
@@ -230,7 +228,6 @@ float SampleBeamImage(const uint32_t2 main_image_location, const RWTexture2D<flo
     t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 1)));
     t = min(t, beam_image.Load(beam_image_location + int32_t2(1, 0)));
   }
-  t *= 0.99f;
   return t;
 }
 

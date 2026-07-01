@@ -45,7 +45,11 @@ void CMain(const int32_t3 dispatch_id: SV_DispatchThreadID, const uniform ChunkA
     return;
   }
 
-  if (index.y > grid_n / 2) {
+  VoxelVolume volume;
+  volume.min_tree_index = 50;
+  volume.max_tree_index = grid_n - 51;
+
+  if (volume.Contains(index)) {
     return;
   }
 
@@ -55,7 +59,7 @@ void CMain(const int32_t3 dispatch_id: SV_DispatchThreadID, const uniform ChunkA
     uint32_t visibility_mask = 0;
     for (uint32_t i = 0; i < VISIBILITY_DIRECTION_COUNT; i++) {
       const uint32_t3 offseted_index = visibility_direction_arr[i] + index;
-      if (offseted_index.y > grid_n / 2 || any(offseted_index == 0 || offseted_index == grid_n - 1)) {
+      if (volume.Contains(offseted_index) || any(offseted_index == 0 || offseted_index == grid_n - 1)) {
         visibility_mask |= 1 << i;
       }
     }

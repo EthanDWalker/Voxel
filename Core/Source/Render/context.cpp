@@ -131,7 +131,7 @@ RenderContext::RenderContext(const RenderSpec &spec) {
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {
     DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&camera_buffer[i]);
     DescriptorBuilder::Bind<DeviceResourceType::Buffer>(
-        &camera_buffer[(i + VulkanSwapchain::FRAME_OVERLAP - 1) % VulkanSwapchain::FRAME_OVERLAP]);
+        &camera_buffer[LastIndex(i, VulkanSwapchain::FRAME_OVERLAP)]);
     if (i == 0) {
       DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
                                      camera_descriptor_layout);

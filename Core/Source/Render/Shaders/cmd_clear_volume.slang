@@ -74,7 +74,7 @@ void UpdateVisibility(const uint32_t visibility_index, const uint32_t other_visi
 
     voxel_tree_leaf[leaf_page_index][leaf_page_offset].visibility_mask |= 1 << other_visiblity_index;
 
-    if (old_node.visibility_mask == 0) {
+    if (old_node.visibility_mask != voxel_tree_leaf[leaf_page_index][leaf_page_offset].visibility_mask) {
       AppendLuminanceFromPtrStack(material_arr[old_node.material_index].emissive);
     }
   }
@@ -104,7 +104,8 @@ void CMain(const uint32_t3 dispatch_id: SV_DispatchThreadID, const uniform Voxel
     voxel_tree_leaf[leaf_page_index][leaf_page_offset].data = 0;
 
     if (leaf_node.visibility_mask != 0) {
-      AppendLuminanceFromPtrStack(-material_arr[leaf_node.material_index].emissive);
+      AppendLuminanceFromPtrStack(-material_arr[leaf_node.material_index].emissive *
+                                  countbits(leaf_node.visibility_mask));
     }
 
     const bool3 min_edge = index == volume.min_tree_index;

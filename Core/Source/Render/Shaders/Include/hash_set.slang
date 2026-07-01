@@ -39,6 +39,18 @@ static const uint32_t HASH_SET_LAST_SPECULAR_DATA_BINDING = 6;
 static const uint32_t EMPTY_KEY = 0xFFFFFFFF;
 static const uint32_t MAX_DRIFT = 100;
 
+uint32_t GetLodTreeMask(const float distance) {
+  if (distance < 20.0f) {
+    return ~(0b0);
+  } else if (distance < 60.0f) {
+    return ~(0b1);
+  } else if (distance < 120.0f){
+    return ~(0b11);
+  } else {
+    return ~(0b111);
+  }
+}
+
 uint32_t Hash(uint32_t a) {
   a = (a ^ 61) ^ (a >> 16);
   a = a + (a << 3);

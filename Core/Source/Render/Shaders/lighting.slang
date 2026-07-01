@@ -14,6 +14,9 @@ RWTexture2D<float> beam_image;
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
 
+[[vk::binding(1, 1)]]
+ConstantBuffer<Camera> last_camera;
+
 [[vk::binding(HASH_SET_HEADER_BINDING, 3)]]
 RWStructuredBuffer<HashSetHeader> hash_set_header;
 
@@ -144,35 +147,229 @@ float3 SampleSpecularLight(float3 origin, const float3 view_dir, Material materi
   return radiance;
 }
 
+struct EmissiveSample {
+  uint32_t3 tree_index;
+  float pdf;
+  uint32_t visibility_direction_index;
+}
+
+uint32_t GetNthSetBitIndex(uint32_t value, uint32_t n) {
+  while (bool(n--)) {
+    if (value == 0)
+      return 0xFFFFFFFF;
+
+    value &= value - 1;
+  }
+
+  return bool(value) ? firstbitlow(value) : 0xFFFFFFFF;
+}
+
+// index is the min index of the bound but still inside
+float GetSampleWeight(const float3 position, const float3 normal, const uint32_t3 index,
+                      const uint32_t level) {
+  const float3 min_bound = index * voxel_size + voxel_tree_header.min_bound;
+  const float3 max_bound =
+      (1 + index + (1 << ((voxel_tree_header.max_depth - (level + 1)) << 1))) * voxel_size +
+      voxel_tree_header.min_bound;
+
+  const float3 center = GetWorldPositionCenter(index, level);
+  const float3 offset = center - position;
+
+  if (all(position >= min_bound && position <= max_bound)) {
+    // in bounds so cone cos_theta cant be computed
+    return 1.0f / dot(offset, offset);
+  } else {
+    const float cos_theta =
+        max(dot(normalize(min_bound - position), normal), dot(normalize(max_bound - position), normal));
+    return saturate(cos_theta) / dot(offset, offset);
+  }
+}
+
+Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const float3 normal,
+                                                  inout uint32_t seed) {
+  float rand = FloatHash(seed);
+  float pdf = 1.0f;
+
+  float total_weight = 0.0f;
+  for (uint32_t i = 0; i < 64; i++) {
+    total_weight +=
+        voxel_tree[0][i].luminance *
+        GetSampleWeight(origin, normal, GetLocalOffset(i) << ((voxel_tree_header.max_depth - 1) << 1), 0);
+  }
+
+  if (total_weight == 0.0f) {
+    return none;
+  }
+
+  rand = max((rand * total_weight) - 1e-5f, 0.0f);
+
+  float acc_weight = 0.0f;
+  uint32_t local_index;
+  BranchNode node;
+  for (uint32_t i = 0; i < 64; i++) {
+    node = voxel_tree[0][i];
+    const float weight =
+        node.luminance *
+        GetSampleWeight(origin, normal, GetLocalOffset(i) << ((voxel_tree_header.max_depth - 1) << 1), 0);
+    acc_weight += weight;
+    if (rand <= acc_weight) {
+      local_index = i;
+      pdf *= (weight / total_weight);
+      break;
+    }
+  }
+
+  if (node.luminance == 0) {
+    return none;
+  }
+
+  uint32_t3 index = GetLocalOffset(local_index) << ((voxel_tree_header.max_depth - 1) << 1);
+  for (uint32_t level = 1;; level++) {
+    seed = Hash(seed * local_index);
+
+    const uint32_t page_index = node.child_ptr_data.child_ptr >> voxel_tree_header.page_size_exp;
+    const uint32_t page_offset =
+        node.child_ptr_data.child_ptr - (page_index << voxel_tree_header.page_size_exp);
+
+    const uint32_t level_shift = (voxel_tree_header.max_depth - (level + 1)) << 1;
+    total_weight = 0.0f;
+
+    uint32_t child_mask_low = (uint32_t)node.child_mask;
+    uint32_t child_mask_high = (uint32_t)(node.child_mask >> 32);
+
+    while (bool(child_mask_low)) {
+      const uint32_t i = firstbitlow(child_mask_low);
+      total_weight += voxel_tree[page_index][page_offset + i].luminance *
+                      GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
+      child_mask_low &= child_mask_low - 1;
+    }
+
+    while (bool(child_mask_high)) {
+      const uint32_t i = firstbitlow(child_mask_high) + 32;
+      total_weight += voxel_tree[page_index][page_offset + i].luminance *
+                      GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
+      child_mask_high &= child_mask_high - 1;
+    }
+
+    acc_weight = 0.0f;
+    rand = max((FloatHash(seed) * total_weight) - 1e-5f, 0.0f);
+
+    child_mask_low = (uint32_t)node.child_mask;
+    child_mask_high = (uint32_t)(node.child_mask >> 32);
+    while (bool(child_mask_low)) {
+      const uint32_t i = firstbitlow(child_mask_low);
+      node = voxel_tree[page_index][page_offset + i];
+      const float weight =
+          node.luminance * GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
+      acc_weight += weight;
+      if (rand <= acc_weight) {
+        local_index = i;
+        pdf *= (weight / total_weight);
+        child_mask_high = 0;
+        break;
+      }
+
+      child_mask_low &= child_mask_low - 1;
+    }
+
+    while (bool(child_mask_high)) {
+      const uint32_t i = firstbitlow(child_mask_high) + 32;
+      node = voxel_tree[page_index][page_offset + i];
+      const float weight =
+          node.luminance * GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
+      acc_weight += weight;
+      if (rand <= acc_weight) {
+        local_index = i;
+        pdf *= (weight / total_weight);
+        break;
+      }
+
+      child_mask_high &= child_mask_high - 1;
+    }
+
+    index += GetLocalOffset(local_index) << level_shift;
+
+    if (node.luminance == 0) {
+      return none;
+    }
+
+    if (node.child_ptr_data.is_leaf) {
+      break;
+    }
+  }
+
+  const uint32_t leaf_page_index = node.child_ptr_data.child_ptr >> voxel_tree_header.page_size_exp;
+  const uint32_t leaf_page_offset =
+      node.child_ptr_data.child_ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
+
+  acc_weight = 0.0f;
+  total_weight = node.luminance;
+  seed = Hash(seed * local_index);
+  rand = max((FloatHash(seed) * total_weight) - 1e-5f, 0.0f);
+  LeafNode leaf_node = {};
+  uint32_t direction_index = 0;
+  for (uint32_t i = 0; i < 64; i++) {
+    leaf_node = voxel_tree_leaf[leaf_page_index][leaf_page_offset + i];
+    if (leaf_node.visibility_mask != 0) {
+      const float weight =
+          material_arr[leaf_node.material_index].emissive * countbits(leaf_node.visibility_mask);
+      acc_weight += weight;
+
+      if (rand <= acc_weight) {
+        local_index = i;
+        seed = Hash(seed * local_index);
+        rand = max((FloatHash(seed) * countbits(leaf_node.visibility_mask)) - 1e-5f, 0.0f);
+
+        const uint32_t bit_index = (uint32_t)floor(rand);
+        direction_index = GetNthSetBitIndex(leaf_node.visibility_mask, bit_index);
+
+        break;
+      }
+    }
+  }
+
+  index += GetLocalOffset(local_index);
+
+  EmissiveSample emissive_sample;
+  emissive_sample.pdf = pdf;
+  emissive_sample.tree_index = index;
+  emissive_sample.visibility_direction_index = direction_index;
+
+  return emissive_sample;
+}
+
 float3 LightSampleDiffuseLight(const float3 origin, const float3 normal, inout uint32_t seed) {
-  const float3 bottom_right = float3(-5.0f, 0.0f, -5.0f);
-  const float3 edge_1 = float3(10.0f, 0.0f, 0.0f);
-  const float3 edge_2 = float3(0.0f, 0.0f, 10.0f);
-  const float3 light_normal = cross(edge_1, edge_2);
-  const float light_area = length(cross(edge_1, edge_2));
+  float3 throughput = 1.0f;
+  float3 radiance = 0.0f;
 
-  const float2 rand = UniformRandom2(seed);
-
-  const float3 sample_point = bottom_right + edge_1 * rand.x + edge_2 * rand.y;
-
-  const float3 sample_dir = normalize(sample_point - origin);
-  const float sample_dist = length(sample_point - origin);
-
-  const float dir_dot_normal = dot(normal, sample_dir);
-  const float dir_dot_quad = dot(-sample_dir, light_normal);
-
-  if (dir_dot_quad <= 0.0f || dir_dot_normal <= 0.0f) {
+  const Optional<EmissiveSample> sample_opt = GetRandomVisibleEmissive(origin, normal, seed);
+  if (!sample_opt.hasValue) {
     return 0.0f;
   }
 
-  RaycastResult res;
-  Raycast(origin, sample_dir, res, sample_dist);
+  const float3 emissive_normal = visibility_direction_arr[sample_opt.value.visibility_direction_index];
+  float3 sample_pos = GetWorldPositionCenter(sample_opt.value.tree_index, voxel_tree_header.max_depth - 1);
+  sample_pos += ((voxel_size / 2.0f)) * emissive_normal;
 
-  float3 radiance = 0.0f;
-  if (!res.hit) {
-    const Material material = material_arr[0];
-    radiance += (material.albedo.rgb * material.emissive * light_area * dir_dot_normal * dir_dot_quad) /
-                (PI * sample_dist * sample_dist);
+  const float3 sample_dir = normalize(sample_pos - origin);
+
+  const float cos2_theta = dot(sample_dir, normal) * dot(-sample_dir, emissive_normal);
+
+  if (cos2_theta <= 0.0f) {
+    return 0.0f;
+  }
+
+  const float distance = length(sample_pos - origin);
+
+  RaycastResult res;
+  Raycast(origin, sample_dir, res, distance);
+
+  if (res.hit) {
+    if (res.t + 1e-1f >= distance && all(res.hit_normal == emissive_normal)) {
+      const Material material = material_arr[res.hit_node.material_index];
+      radiance = (material.albedo.rgb * material.emissive * cos2_theta) /
+                 (PI * sample_opt.value.pdf * distance * distance);
+    }
   }
 
   return radiance;
@@ -190,7 +387,7 @@ float3 BRDFSampleDiffuseLight(float3 origin, float3 normal, const uint32_t max_b
     Raycast(origin, ray_dir, res);
 
     if (!res.hit) {
-      radiance += throughput * SampleEnvironmentColor(ray_dir);
+      // radiance += throughput * SampleEnvironmentColor(ray_dir);
       break;
     }
 
@@ -239,8 +436,14 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
   Raycast(camera.position + t * ray_dir, ray_dir, res);
 
   if (res.hit) {
+    const float hit_distance =
+        length(GetWorldPositionCenter(res.hit_tree_index, res.hit_level) - camera.position);
+    const float last_hit_distance =
+        length(GetWorldPositionCenter(res.hit_tree_index, res.hit_level) - last_camera.position);
+
     const Optional<uint32_t> last_hash_set_index =
-        HashSetFind(PackTreeIndex(res.hit_tree_index), last_hash_set_key_arr, hash_set_header);
+        HashSetFind(PackTreeIndex(res.hit_tree_index & GetLodTreeMask(last_hit_distance)),
+                    last_hash_set_key_arr, hash_set_header);
 
     const LightingData last_diffuse_data =
         last_hash_set_index.hasValue ? last_diffuse_data_arr[last_hash_set_index.value] : LightingData();
@@ -248,8 +451,9 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
         last_hash_set_index.hasValue ? last_specular_data_arr[last_hash_set_index.value] : LightingData();
 
     bool initialized;
-    const Optional<uint32_t> hash_set_index = HashSetFindOrInitialize(
-        PackTreeIndex(res.hit_tree_index), initialized, hash_set_key_arr, hash_set_header);
+    const Optional<uint32_t> hash_set_index =
+        HashSetFindOrInitialize(PackTreeIndex(res.hit_tree_index & GetLodTreeMask(hit_distance)), initialized,
+                                hash_set_key_arr, hash_set_header);
 
     if (!hash_set_index.hasValue) {
       // failed to initialize
@@ -287,10 +491,11 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
     const Material material = material_arr[res.hit_node.material_index];
 
     {
-      const uint32_t max_bounce_count = 5;
+      const uint32_t max_bounce_count = 1;
 
       const float3 diffuse_light_sample =
-          BRDFSampleDiffuseLight(ray_origin, res.hit_normal, max_bounce_count, seed);
+          false ? BRDFSampleDiffuseLight(ray_origin, res.hit_normal, max_bounce_count, seed)
+                : LightSampleDiffuseLight(ray_origin, res.hit_normal, seed);
 
       diffuse_data_arr[hash_set_index.value].sample_count += 1.0f;
       diffuse_data_arr[hash_set_index.value].acc_lighting_r += diffuse_light_sample.r;

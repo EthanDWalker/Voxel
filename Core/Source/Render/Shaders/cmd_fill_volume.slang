@@ -23,7 +23,7 @@ void FillNode(const uint32_t3 index, const LeafNode node) {
     const ChildPtrData child_ptr_data =
         ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
     if (node.visibility_mask != 0 && material.emissive != 0.0f) {
-      voxel_tree[page_index][page_offset].luminance.add(material.emissive);
+      voxel_tree[page_index][page_offset].luminance.add(material.emissive * countbits(node.visibility_mask));
     }
 
     ptr = child_ptr_data.child_ptr + local_index;
@@ -93,8 +93,7 @@ void UpdateVisibility(const uint32_t visibility_index, const uint32_t other_visi
 
     voxel_tree_leaf[leaf_page_index][leaf_page_offset].visibility_mask &= ~(1 << other_visibility_index);
 
-    if (voxel_tree_leaf[leaf_page_index][leaf_page_offset].visibility_mask == 0 &&
-        old_node.visibility_mask != 0) {
+    if (voxel_tree_leaf[leaf_page_index][leaf_page_offset].visibility_mask != old_node.visibility_mask) {
       AppendLuminanceFromPtrStack(-material_arr[old_node.material_index].emissive);
     }
 
@@ -128,8 +127,6 @@ void CMain(const uint32_t3 dispatch_id: SV_DispatchThreadID, const uniform PushC
     const bool3 min_edge = (index == info.volume.min_tree_index);
     const bool3 max_edge = (index == info.volume.max_tree_index);
     if (any(min_edge || max_edge)) {
-      visibility = 0b111111;
-      /*
       if (min_edge.x) {
         UpdateVisibility(0, 1, index, visibility);
       }
@@ -150,7 +147,6 @@ void CMain(const uint32_t3 dispatch_id: SV_DispatchThreadID, const uniform PushC
       if (max_edge.z) {
         UpdateVisibility(5, 4, index, visibility);
       }
-      */
     }
 
     node.visibility_mask = visibility;

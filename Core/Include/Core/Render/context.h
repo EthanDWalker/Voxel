@@ -21,7 +21,7 @@ struct RenderSpec {
 const u32 BEAM_PREPASS_SCALE_EXP = 2;
 const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
 
-const f32 DEFAULT_DIFFUSE_LIGHT_ALPHA = 0.01f;
+const f32 DEFAULT_DIFFUSE_LIGHT_ALPHA = 0.015f;
 const f32 DEFAULT_SPECULAR_LIGHT_ALPHA = 0.2f;
 
 struct RenderContext {

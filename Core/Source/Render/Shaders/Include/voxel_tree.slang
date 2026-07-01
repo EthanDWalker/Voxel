@@ -191,8 +191,8 @@ static const uint32_t memory_index = spirv_asm {
     };
 
 uint32_t PackTreeIndex(const uint32_t3 tree_index) {
-  return SumComponents(
-      tree_index << uint32_t3(0, voxel_tree_header.max_depth << 1, (voxel_tree_header.max_depth << 1) << 1));
+  return SumComponents((tree_index) << uint32_t3(0, voxel_tree_header.max_depth << 1,
+                                                 (voxel_tree_header.max_depth << 1) << 1));
 }
 
 float3 GetWorldPositionCenter(const uint32_t3 tree_index, const uint32_t level) {
