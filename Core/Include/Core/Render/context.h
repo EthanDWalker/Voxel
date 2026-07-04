@@ -19,7 +19,7 @@ struct RenderSpec {
 };
 
 const u32 BEAM_PREPASS_SCALE_EXP = 2;
-const u32 INDIRECT_LIGHT_SCALE_EXP = 1;
+const u32 DIFFUSE_PREPASS_SCALE_EXP = 2;
 
 const f32 DEFAULT_DIFFUSE_LIGHT_ALPHA = 0.015f;
 const f32 DEFAULT_SPECULAR_LIGHT_ALPHA = 0.2f;
@@ -51,6 +51,7 @@ struct RenderContext {
   VulkanDescriptor image_descriptor;
   VulkanImage<ImageType::Planar> main_image;
   VulkanImage<ImageType::Planar> beam_prepass_image;
+  VulkanImage<ImageType::Planar> diffuse_image;
 
   std::array<VulkanBuffer<BufferType::StructuredBuffer, FrameLuminanceData>, VulkanSwapchain::FRAME_OVERLAP>
       frame_luminance_data_buffer = {
@@ -81,8 +82,6 @@ struct RenderContext {
   VulkanPipeline<PipelineType::Compute> fill_volume_pipeline;
   std::vector<VoxelVolume> fill_volume_cmds;
   std::mutex fill_volume_cmd_mutex;
-
-  VulkanSampler albedo_sampler;
 
   VulkanBuffer<BufferType::StagingBuffer> raycast_staging_buffer = "raycast staging buffer";
   VulkanBuffer<BufferType::StructuredBuffer, Raycast> raycast_cmds_buffer = "raycast cmd buffer";

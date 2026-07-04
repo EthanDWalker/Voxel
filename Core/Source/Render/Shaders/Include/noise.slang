@@ -131,3 +131,16 @@ float2 SampleNoiseGradient(const int32_t seed, const float2 position) {
 
   return float2(fwd_diff(SampleNoise)(seed, x_partial).d, fwd_diff(SampleNoise)(seed, y_partial).d);
 }
+
+static const float2 poisson_disk[8] = {
+  // clang-format off
+  float2(-0.710f, -0.564f),
+  float2(-0.176f, -0.786f),
+  float2( 0.526f, -0.632f),
+  float2( 0.778f,  0.024f),
+  float2( 0.316f,  0.602f),
+  float2(-0.346f,  0.442f),
+  float2(-0.808f,  0.188f),
+  float2( 0.096f, -0.124f),
+  // clang-format on
+};

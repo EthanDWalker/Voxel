@@ -23,7 +23,7 @@ void FillNode(const uint32_t3 index, const LeafNode node) {
     const ChildPtrData child_ptr_data =
         ChildPtrData(voxel_tree[page_index][page_offset].child_ptr_data.load());
     if (node.visibility_mask != 0 && material.emissive != 0.0f) {
-      voxel_tree[page_index][page_offset].luminance.add(material.emissive * countbits(node.visibility_mask));
+      voxel_tree_luminance[page_index][page_offset].add(material.emissive * countbits(node.visibility_mask));
     }
 
     ptr = child_ptr_data.child_ptr + local_index;
@@ -48,7 +48,7 @@ void AppendLuminanceFromPtrStack(const float luminance) {
     const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
     const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-    voxel_tree[page_index][page_offset].luminance.add(luminance);
+    voxel_tree_luminance[page_index][page_offset].add(luminance);
   }
 }
 

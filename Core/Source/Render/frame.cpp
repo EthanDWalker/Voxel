@@ -64,8 +64,6 @@ void Frame(Camera &camera) {
 
     VulkanSubPass<SubPassType::Transfer> pass;
     pass.AddDependency<DeviceResourceType::TransferSrc>(render_context->frame_staging_buffer[resource_index]);
-    pass.AddDependency<DeviceResourceType::TransferSrc>(
-        render_context->light_hash_set.swapped_data[resource_index].header_staging_buffer);
 
     pass.AddDependency<DeviceResourceType::TransferDst>(render_context->camera_buffer[resource_index]);
     pass.AddDependency<DeviceResourceType::TransferDst>(
@@ -74,10 +72,6 @@ void Frame(Camera &camera) {
         render_context->light_hash_set.swapped_data[resource_index].diffuse_data_buffer);
     pass.AddDependency<DeviceResourceType::TransferDst>(
         render_context->light_hash_set.swapped_data[resource_index].specular_data_buffer);
-    pass.AddDependency<DeviceResourceType::TransferDst>(
-        render_context->light_hash_set.swapped_data[resource_index].header_buffer);
-
-    pass.AddDependency<DeviceResourceType::TransferDst>(render_context->main_image);
 
     pass.AddDependency<DeviceResourceType::TransferDst>(
         render_context->frame_luminance_data_buffer[resource_index]);
@@ -126,7 +120,7 @@ void Frame(Camera &camera) {
   {
     cmd.BeginDebugPass("lighting pass");
     VulkanSubPass<SubPassType::Compute> pass;
-    pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
+    pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->diffuse_image);
     pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[resource_index]);
 
     pass.AddDependency<DeviceResourceType::Buffer>(
@@ -158,7 +152,7 @@ void Frame(Camera &camera) {
     push_constants.specular_alpha = render_context->specular_light_alpha;
     push_constants.frame_number = render_context->swapchain.frame_number;
     cmd.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(push_constants), &push_constants);
-    cmd.Dispatch(Vec3u32((render_context->main_image.GetVec2u32() >> INDIRECT_LIGHT_SCALE_EXP) / 8 + 1, 1));
+    cmd.Dispatch(Vec3u32((render_context->main_image.GetVec2u32() >> DIFFUSE_PREPASS_SCALE_EXP) / 8 + 1, 1));
     cmd.EndDebugPass();
   }
 
@@ -166,6 +160,7 @@ void Frame(Camera &camera) {
     cmd.BeginDebugPass("main pass");
     VulkanSubPass<SubPassType::Compute> main_pass;
     main_pass.AddDependency<DeviceResourceType::RWStorageImage>(render_context->main_image);
+    main_pass.AddDependency<DeviceResourceType::StorageImage>(render_context->diffuse_image);
     main_pass.AddDependency<DeviceResourceType::Buffer>(render_context->camera_buffer[resource_index]);
 
     main_pass.AddDependency<DeviceResourceType::Buffer>(

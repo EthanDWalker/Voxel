@@ -104,12 +104,13 @@ RenderContext::RenderContext(const RenderSpec &spec) {
   current_spec = spec;
 
   main_image.Create(window_size, VK_FORMAT_R16G16B16A16_UNORM,
-                    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    /*referenced=*/true);
+                    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
   beam_prepass_image.Create(window_size >> BEAM_PREPASS_SCALE_EXP, VK_FORMAT_R32_SFLOAT,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+
+  diffuse_image.Create(window_size >> DIFFUSE_PREPASS_SCALE_EXP, VK_FORMAT_R16G16B16A16_UNORM,
+                       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
   swapchain.Create(window_size);
 
@@ -118,7 +119,7 @@ RenderContext::RenderContext(const RenderSpec &spec) {
                             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
   }
 
-  light_hash_set.Create(((main_image.height * main_image.width) >> INDIRECT_LIGHT_SCALE_EXP) * 2,
+  light_hash_set.Create(((main_image.height * main_image.width) >> DIFFUSE_PREPASS_SCALE_EXP) * 2,
                         VK_SHADER_STAGE_COMPUTE_BIT);
 
   raycast_results_buffer.Create(sizeof(RaycastResult) * spec.max_raycasts,
@@ -157,8 +158,6 @@ RenderContext::RenderContext(const RenderSpec &spec) {
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_COMPUTE_BIT, raycast_descriptor_layout);
   DescriptorBuilder::BuildSet(VK_SHADER_STAGE_COMPUTE_BIT, raycast_descriptor_layout, raycast_descriptor);
   DescriptorBuilder::Reset();
-
-  albedo_sampler.Create(SamplerFilter::Linear, SamplerFilter::Linear);
 
   for (u32 i = 0; i < VulkanSwapchain::FRAME_OVERLAP; i++) {
     DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&frame_luminance_data_buffer[i]);

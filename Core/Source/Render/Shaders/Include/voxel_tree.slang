@@ -40,7 +40,6 @@ struct ChildPtrData {
 struct BranchNode {
   uint64_t child_mask;
   ChildPtrData child_ptr_data;
-  float luminance;
 }
 
 struct Material {
@@ -54,7 +53,6 @@ struct Material {
 struct AtomicBranchNode {
   Atomic<uint64_t> child_mask;
   Atomic<uint32_t> child_ptr_data;
-  Atomic<float> luminance;
 };
 
 static const uint32_t MATERIAL_INDEX_MASK = (1 << 10) - 1;
@@ -143,6 +141,8 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
   [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
   RWStructuredBuffer<AtomicBranchNode> voxel_tree[];
   [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
+  RWStructuredBuffer<Atomic<float>> voxel_tree_luminance[];
+  [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
   RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
 
 #else
@@ -152,6 +152,8 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     RWStructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
+    RWStructuredBuffer<float> voxel_tree_luminance[];
+    [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
     RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
 
   #else
@@ -159,6 +161,8 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     StructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
+    StructuredBuffer<float> voxel_tree_luminance[];
+    [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
     StructuredBuffer<LeafNode> voxel_tree_leaf[];
 
   #endif
@@ -167,18 +171,18 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
 
 #ifdef VOXEL_TREE_READ_WRITE
 
-  [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
+  [[vk::binding(3, VOXEL_TREE_SET_BINDING)]]
   RWTreeHeader voxel_tree_header;
 
 #else
 
-  [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
+  [[vk::binding(3, VOXEL_TREE_SET_BINDING)]]
   TreeHeader voxel_tree_header;
 
 #endif
 // clang-format on
 
-[[vk::binding(3, VOXEL_TREE_SET_BINDING)]]
+[[vk::binding(4, VOXEL_TREE_SET_BINDING)]]
 CountedBuffer<Material> material_arr;
 
 static const float box_size = 1 << voxel_tree_header.box_size_exp;

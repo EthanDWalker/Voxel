@@ -3,6 +3,7 @@
 #include "Include/camera.slang"
 #include "Include/color.slang"
 #include "Include/hash_set.slang"
+#include "Include/noise.slang"
 #include "Include/pbr.slang"
 #include "Include/voxel_tree.slang"
 
@@ -76,8 +77,10 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
 
   float3 acc = 0.0f;
   if (res.hit) {
-    const Optional<uint32_t> hash_set_index = HashSetFind(
-        PackTreeIndex(res.hit_tree_index & GetLodTreeMask(hit_distance)), hash_set_key_arr, hash_set_header);
+    const uint32_t lod_mask =
+        LodMask(length(camera.position - GetWorldPositionCenter(res.hit_tree_index, res.hit_level)));
+    const Optional<uint32_t> hash_set_index =
+        HashSetFind(PackTreeIndex(res.hit_tree_index & lod_mask), hash_set_key_arr, hash_set_header);
 
     const Material hit_material = material_arr[res.hit_node.material_index];
     acc += hit_material.albedo.rgb * hit_material.emissive;
@@ -90,26 +93,32 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID) {
         diffuse_data = diffuse_data_arr[hash_set_index.value];
         specular_data = specular_data_arr[hash_set_index.value];
       } else {
-        const uint32_t2 indirect_pixel_index = dispatch_id & (~0b1);
-        const float3 indirect_light_dir = GetPixelRayDir(indirect_pixel_index, image_size, inv_view_proj);
-        const float indirect_t = SampleBeamImage(indirect_pixel_index, beam_image);
+        diffuse_data = {};
+        specular_data = {};
+      }
 
-        RaycastResult lighting_res;
-        Raycast(ray_origin + indirect_t * indirect_light_dir, indirect_light_dir, lighting_res);
+      const float3 up = abs(res.hit_normal.y) < 0.999f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
 
-        const float light_hit_distance = length(
-            GetWorldPositionCenter(lighting_res.hit_tree_index, lighting_res.hit_level) - camera.position);
-        const Optional<uint32_t> closest_hash_set_index =
-            HashSetFind(PackTreeIndex(lighting_res.hit_tree_index & GetLodTreeMask(light_hit_distance)),
-                        hash_set_key_arr, hash_set_header);
+      const float3 tangent = normalize(cross(up, res.hit_normal));
+      const float3 bitangent = cross(res.hit_normal, tangent);
 
-        if (closest_hash_set_index.hasValue) {
-          diffuse_data = diffuse_data_arr[closest_hash_set_index.value];
-          specular_data = diffuse_data_arr[closest_hash_set_index.value];
-        } else {
-          diffuse_data = {};
-          specular_data = {};
+      const float3 hit_center = GetWorldPositionCenter(res.hit_tree_index, res.hit_level);
+
+      for (uint32_t i = 0; i < 8; i++) {
+        const float3 blur_direction = normalize(tangent * poisson_disk[i].x + bitangent * poisson_disk[i].y);
+        const uint32_t3 blurred_tree_index =
+            GetTreeIndex(StepTreeRaySingle(hit_center, blur_direction, res.hit_level));
+        const uint32_t blurred_lod_mask =
+            LodMask(length(camera.position - GetWorldPositionCenter(blurred_tree_index, res.hit_level)));
+
+        const Optional<uint32_t> blurred_hash_set_index = HashSetFind(
+            PackTreeIndex(blurred_tree_index & blurred_lod_mask), hash_set_key_arr, hash_set_header);
+        if (!blurred_hash_set_index.hasValue) {
+          continue;
         }
+        const LightingData blurred_diffuse_data = diffuse_data_arr[blurred_hash_set_index.value];
+        diffuse_data.sample_count += blurred_diffuse_data.sample_count;
+        diffuse_data.acc_lighting += blurred_diffuse_data.acc_lighting;
       }
 
       acc += hit_material.albedo.rgb * (1.0f - hit_material.metallic) *

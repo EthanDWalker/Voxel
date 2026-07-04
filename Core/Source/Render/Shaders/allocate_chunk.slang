@@ -46,8 +46,8 @@ void CMain(const int32_t3 dispatch_id: SV_DispatchThreadID, const uniform ChunkA
   }
 
   VoxelVolume volume;
-  volume.min_tree_index = 50;
-  volume.max_tree_index = grid_n - 51;
+  volume.min_tree_index = 200;
+  volume.max_tree_index = grid_n - 201;
 
   if (volume.Contains(index)) {
     return;

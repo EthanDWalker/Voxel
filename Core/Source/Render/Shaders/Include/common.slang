@@ -1,7 +1,7 @@
 #pragma once
 
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
-static const uint32_t INDIRECT_PREPASS_SCALE_EXP = 1;
+static const uint32_t DIFFUSE_PREPASS_SCALE_EXP = 2;
 
 static const float PI = 3.14159f;
 

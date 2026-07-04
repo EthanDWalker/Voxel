@@ -3,6 +3,7 @@
 #include "Include/camera.slang"
 #include "Include/color.slang"
 #include "Include/hash_set.slang"
+#include "Include/noise.slang"
 #include "Include/pbr.slang"
 #include "Include/voxel_tree.slang"
 
@@ -13,7 +14,6 @@ RWTexture2D<float> beam_image;
 
 [[vk::binding(0, 1)]]
 ConstantBuffer<Camera> camera;
-
 [[vk::binding(1, 1)]]
 ConstantBuffer<Camera> last_camera;
 
@@ -58,20 +58,25 @@ float2 UniformRandom2(const uint seed) {
   return float2(FloatHash(seed), FloatHash(seed * 1664525U + 1013904223U));
 }
 
-float3 TransformFromNormalSpace(const float3 normal, const float3 local_dir) {
+void GetNormalBasis(const float3 normal, out float3 tangent, out float3 bitangent) {
   const float3 up = abs(normal.y) < 0.999f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
 
-  const float3 tangent = normalize(cross(up, normal));
-  const float3 bitangent = cross(normal, tangent);
+  tangent = normalize(cross(up, normal));
+  bitangent = cross(normal, tangent);
+}
+
+float3 TransformFromNormalSpace(const float3 normal, const float3 local_dir) {
+  float3 tangent;
+  float3 bitangent;
+  GetNormalBasis(normal, tangent, bitangent);
 
   return normalize(tangent * local_dir.x + normal * local_dir.y + bitangent * local_dir.z);
 }
 
 float3 TransformToNormalSpace(const float3 normal, const float3 world_dir) {
-  const float3 up = abs(normal.y) < 0.999f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
-
-  const float3 tangent = normalize(cross(up, normal));
-  const float3 bitangent = cross(normal, tangent);
+  float3 tangent;
+  float3 bitangent;
+  GetNormalBasis(normal, tangent, bitangent);
 
   return normalize(float3(dot(world_dir, tangent), dot(world_dir, normal), dot(world_dir, bitangent)));
 }
@@ -193,7 +198,7 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
   float total_weight = 0.0f;
   for (uint32_t i = 0; i < 64; i++) {
     total_weight +=
-        voxel_tree[0][i].luminance *
+        voxel_tree_luminance[0][i] *
         GetSampleWeight(origin, normal, GetLocalOffset(i) << ((voxel_tree_header.max_depth - 1) << 1), 0);
   }
 
@@ -207,20 +212,20 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
   uint32_t local_index;
   BranchNode node;
   for (uint32_t i = 0; i < 64; i++) {
-    node = voxel_tree[0][i];
     const float weight =
-        node.luminance *
+        voxel_tree_luminance[0][i] *
         GetSampleWeight(origin, normal, GetLocalOffset(i) << ((voxel_tree_header.max_depth - 1) << 1), 0);
     acc_weight += weight;
     if (rand <= acc_weight) {
+      if (weight == 0.0f) {
+        return none;
+      }
+
       local_index = i;
       pdf *= (weight / total_weight);
+      node = voxel_tree[0][i];
       break;
     }
-  }
-
-  if (node.luminance == 0) {
-    return none;
   }
 
   uint32_t3 index = GetLocalOffset(local_index) << ((voxel_tree_header.max_depth - 1) << 1);
@@ -239,14 +244,14 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
 
     while (bool(child_mask_low)) {
       const uint32_t i = firstbitlow(child_mask_low);
-      total_weight += voxel_tree[page_index][page_offset + i].luminance *
+      total_weight += voxel_tree_luminance[page_index][page_offset + i] *
                       GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
       child_mask_low &= child_mask_low - 1;
     }
 
     while (bool(child_mask_high)) {
       const uint32_t i = firstbitlow(child_mask_high) + 32;
-      total_weight += voxel_tree[page_index][page_offset + i].luminance *
+      total_weight += voxel_tree_luminance[page_index][page_offset + i] *
                       GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
       child_mask_high &= child_mask_high - 1;
     }
@@ -258,14 +263,14 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
     child_mask_high = (uint32_t)(node.child_mask >> 32);
     while (bool(child_mask_low)) {
       const uint32_t i = firstbitlow(child_mask_low);
-      node = voxel_tree[page_index][page_offset + i];
-      const float weight =
-          node.luminance * GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
+      const float weight = voxel_tree_luminance[page_index][page_offset + i] *
+                           GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
       acc_weight += weight;
       if (rand <= acc_weight) {
         local_index = i;
         pdf *= (weight / total_weight);
         child_mask_high = 0;
+        node = voxel_tree[page_index][page_offset + i];
         break;
       }
 
@@ -274,13 +279,17 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
 
     while (bool(child_mask_high)) {
       const uint32_t i = firstbitlow(child_mask_high) + 32;
-      node = voxel_tree[page_index][page_offset + i];
-      const float weight =
-          node.luminance * GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
+      const float weight = voxel_tree_luminance[page_index][page_offset + i] *
+                           GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
       acc_weight += weight;
       if (rand <= acc_weight) {
+        if (weight == 0.0f) {
+          return none;
+        }
+
         local_index = i;
         pdf *= (weight / total_weight);
+        node = voxel_tree[page_index][page_offset + i];
         break;
       }
 
@@ -289,11 +298,8 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
 
     index += GetLocalOffset(local_index) << level_shift;
 
-    if (node.luminance == 0) {
-      return none;
-    }
-
     if (node.child_ptr_data.is_leaf) {
+      total_weight = voxel_tree_luminance[page_index][page_offset];
       break;
     }
   }
@@ -303,7 +309,6 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
       node.child_ptr_data.child_ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
 
   acc_weight = 0.0f;
-  total_weight = node.luminance;
   seed = Hash(seed * local_index);
   rand = max((FloatHash(seed) * total_weight) - 1e-5f, 0.0f);
   LeafNode leaf_node = {};
@@ -316,6 +321,9 @@ Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const flo
       acc_weight += weight;
 
       if (rand <= acc_weight) {
+        if (weight == 0.0f) {
+          return none;
+        }
         local_index = i;
         seed = Hash(seed * local_index);
         rand = max((FloatHash(seed) * countbits(leaf_node.visibility_mask)) - 1e-5f, 0.0f);
@@ -428,40 +436,37 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
       mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
           PerspectiveReverseZInverse(1.0f, 2.0f, camera.fov_y, camera.aspect_ratio));
 
-  const float3 ray_dir = GetPixelRayDir(dispatch_id << INDIRECT_PREPASS_SCALE_EXP, image_size, inv_view_proj);
+  const float3 ray_dir = GetPixelRayDir(dispatch_id << DIFFUSE_PREPASS_SCALE_EXP, image_size, inv_view_proj);
 
-  const float t = SampleBeamImage(dispatch_id << INDIRECT_PREPASS_SCALE_EXP, beam_image);
+  const float t = SampleBeamImage(dispatch_id << DIFFUSE_PREPASS_SCALE_EXP, beam_image);
 
   RaycastResult res;
   Raycast(camera.position + t * ray_dir, ray_dir, res);
 
   if (res.hit) {
-    const float hit_distance =
-        length(GetWorldPositionCenter(res.hit_tree_index, res.hit_level) - camera.position);
-    const float last_hit_distance =
-        length(GetWorldPositionCenter(res.hit_tree_index, res.hit_level) - last_camera.position);
-
-    const Optional<uint32_t> last_hash_set_index =
-        HashSetFind(PackTreeIndex(res.hit_tree_index & GetLodTreeMask(last_hit_distance)),
-                    last_hash_set_key_arr, hash_set_header);
-
-    const LightingData last_diffuse_data =
-        last_hash_set_index.hasValue ? last_diffuse_data_arr[last_hash_set_index.value] : LightingData();
-    const LightingData last_specular_data =
-        last_hash_set_index.hasValue ? last_specular_data_arr[last_hash_set_index.value] : LightingData();
+    const float3 voxel_center = GetWorldPositionCenter(res.hit_tree_index, res.hit_level);
 
     bool initialized;
-    const Optional<uint32_t> hash_set_index =
-        HashSetFindOrInitialize(PackTreeIndex(res.hit_tree_index & GetLodTreeMask(hit_distance)), initialized,
-                                hash_set_key_arr, hash_set_header);
+    const uint32_t lod_mask = LodMask(length(camera.position - voxel_center));
+
+    const Optional<uint32_t> hash_set_index = HashSetFindOrInitialize(
+        PackTreeIndex(res.hit_tree_index & lod_mask), initialized, hash_set_key_arr, hash_set_header);
 
     if (!hash_set_index.hasValue) {
-      // failed to initialize
+      printf("failed to find index");
       return;
     }
 
     if (initialized) {
+      const float last_distance = length(last_camera.position - voxel_center);
+
+      const uint32_t last_lod_mask = LodMask(length(last_camera.position - voxel_center));
+      const Optional<uint32_t> last_hash_set_index = HashSetFind(
+          PackTreeIndex(res.hit_tree_index & last_lod_mask), last_hash_set_key_arr, hash_set_header);
+
       if (last_hash_set_index.hasValue) {
+        const LightingData last_diffuse_data = last_diffuse_data_arr[last_hash_set_index.value];
+
         diffuse_data_arr[hash_set_index.value].acc_lighting_r +=
             last_diffuse_data.acc_lighting.r * (1.0f - info.diffuse_alpha);
         diffuse_data_arr[hash_set_index.value].acc_lighting_g +=
@@ -470,19 +475,9 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
             last_diffuse_data.acc_lighting.b * (1.0f - info.diffuse_alpha);
         diffuse_data_arr[hash_set_index.value].sample_count +=
             last_diffuse_data.sample_count * (1.0f - info.diffuse_alpha);
-
-        specular_data_arr[hash_set_index.value].acc_lighting_r +=
-            last_specular_data.acc_lighting.r * (1.0f - info.specular_alpha);
-        specular_data_arr[hash_set_index.value].acc_lighting_g +=
-            last_specular_data.acc_lighting.g * (1.0f - info.specular_alpha);
-        specular_data_arr[hash_set_index.value].acc_lighting_b +=
-            last_specular_data.acc_lighting.b * (1.0f - info.specular_alpha);
-        specular_data_arr[hash_set_index.value].sample_count +=
-            last_specular_data.sample_count * (1.0f - info.specular_alpha);
       }
     }
 
-    const float3 voxel_center = GetWorldPositionCenter(res.hit_tree_index, res.hit_level);
     const float3 ray_origin = StepTreeRaySingle(voxel_center, res.hit_normal, res.hit_level);
 
     uint32_t seed = Hash(res.leaf_ptr ^ ((info.frame_number + 1) * 9781u) ^
@@ -491,25 +486,12 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
     const Material material = material_arr[res.hit_node.material_index];
 
     {
-      const uint32_t max_bounce_count = 1;
-
-      const float3 diffuse_light_sample =
-          false ? BRDFSampleDiffuseLight(ray_origin, res.hit_normal, max_bounce_count, seed)
-                : LightSampleDiffuseLight(ray_origin, res.hit_normal, seed);
+      const float3 diffuse_light_sample = LightSampleDiffuseLight(ray_origin, res.hit_normal, seed);
 
       diffuse_data_arr[hash_set_index.value].sample_count += 1.0f;
       diffuse_data_arr[hash_set_index.value].acc_lighting_r += diffuse_light_sample.r;
       diffuse_data_arr[hash_set_index.value].acc_lighting_g += diffuse_light_sample.g;
       diffuse_data_arr[hash_set_index.value].acc_lighting_b += diffuse_light_sample.b;
-    }
-
-    if (false) {
-      const float3 specular_light_sample =
-          SampleSpecularLight(ray_origin, ray_dir, material, res.hit_normal, seed);
-      specular_data_arr[hash_set_index.value].sample_count += 1.0f;
-      specular_data_arr[hash_set_index.value].acc_lighting_r += specular_light_sample.r;
-      specular_data_arr[hash_set_index.value].acc_lighting_g += specular_light_sample.g;
-      specular_data_arr[hash_set_index.value].acc_lighting_b += specular_light_sample.b;
     }
   }
 }

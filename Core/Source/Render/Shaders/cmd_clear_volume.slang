@@ -29,7 +29,7 @@ void AppendLuminanceFromPtrStack(const float luminance) {
     const uint32_t page_index = ptr >> voxel_tree_header.page_size_exp;
     const uint32_t page_offset = ptr - (page_index << voxel_tree_header.page_size_exp);
 
-    voxel_tree[page_index][page_offset].luminance.add(luminance);
+    voxel_tree_luminance[page_index][page_offset].add(luminance);
   }
 }
 

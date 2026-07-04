@@ -49,12 +49,6 @@ void VoxelizeChunk(const Vec3u32 index, const i32 seed, const u32 max_depth) {
         allocate_pass.AddDependency<DeviceResourceType::RWBuffer>(
             render_context->voxel_tree.tree_header_buffer);
 
-        allocate_pass.ReserveBufferDependencies(render_context->voxel_tree.branch_pages.size());
-        for (u32 i = 0; i < render_context->voxel_tree.branch_pages.size(); i++) {
-          allocate_pass.AddDependency<DeviceResourceType::RWBuffer>(
-              *render_context->voxel_tree.branch_pages[i]);
-        }
-
         cmd.BindSubPass(allocate_pass);
 
         cmd.BindPipeline(render_context->chunk_allocate_pipeline);
@@ -116,18 +110,6 @@ void VoxelizeChunk(const Vec3u32 index, const i32 seed, const u32 max_depth) {
       VulkanSubPass<SubPassType::Compute> child_mask_pass;
       child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(
           render_context->voxel_tree.tree_header_buffer);
-
-      child_mask_pass.ReserveBufferDependencies(render_context->voxel_tree.branch_pages.size());
-      for (u32 i = 0; i < render_context->voxel_tree.branch_pages.size(); i++) {
-        child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(
-            *render_context->voxel_tree.branch_pages[i]);
-      }
-
-      child_mask_pass.ReserveBufferDependencies(render_context->voxel_tree.leaf_pages.size());
-      for (u32 i = 0; i < render_context->voxel_tree.leaf_pages.size(); i++) {
-        child_mask_pass.AddDependency<DeviceResourceType::RWBuffer>(
-            *render_context->voxel_tree.leaf_pages[i]);
-      }
 
       cmd.BindSubPass(child_mask_pass);
 

@@ -27,7 +27,6 @@ struct SparseVoxelTree {
   struct BranchNode {
     u64 child_mask;
     u32 child_ptr;
-    f32 luminance;
   };
 
   struct LeafNode {
@@ -51,6 +50,8 @@ struct SparseVoxelTree {
   };
 
   std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>> branch_pages;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, f32>>> branch_luminance_pages;
+
   std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, LeafNode>>> leaf_pages;
   VulkanDescriptorLayout descriptor_layout;
   VulkanDescriptor descriptor;
