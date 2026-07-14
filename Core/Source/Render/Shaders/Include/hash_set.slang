@@ -5,16 +5,23 @@ struct HashSetHeader {
   uint32_t size;
 };
 
+struct Reservoir<T> {
+  T selected_sample;
+  float total_weight;
+
+  [[mutating]]
+  void Update(const T new_sample, const float sample_weight, const float u_rand) {
+    total_weight += sample_weight;
+
+    if (u_rand < sample_weight / total_weight) {
+      this.selected_sample = new_sample;
+    }
+  }
+};
+
 struct LightingData {
   float3 acc_lighting;
   float sample_count;
-};
-
-struct AtomicLightingData {
-  Atomic<float> acc_lighting_r;
-  Atomic<float> acc_lighting_g;
-  Atomic<float> acc_lighting_b;
-  Atomic<float> sample_count;
 };
 
 struct HashSetKey {
@@ -38,18 +45,6 @@ static const uint32_t HASH_SET_LAST_SPECULAR_DATA_BINDING = 6;
 
 static const uint32_t EMPTY_KEY = 0xFFFFFFFF;
 static const uint32_t MAX_DRIFT = 100;
-
-uint32_t LodMask(const float distance) {
-  if (distance < 30.0f) {
-    return ~0b0;
-  } else if (distance < 90.0f) {
-    return ~0b1;
-  } else if (distance < 250.0f){
-    return ~0b11;
-  } else {
-    return ~0b111;
-  }
-}
 
 uint32_t Hash(uint32_t a) {
   a = (a ^ 61) ^ (a >> 16);

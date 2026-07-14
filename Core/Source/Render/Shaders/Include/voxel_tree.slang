@@ -40,7 +40,14 @@ struct ChildPtrData {
 struct BranchNode {
   uint64_t child_mask;
   ChildPtrData child_ptr_data;
-}
+};
+
+struct EmissiveLeaf {
+  uint32_t packed_tree_index;
+};
+struct AtomicEmissiveLeaf {
+  Atomic<uint32_t> packed_tree_index;
+};
 
 struct Material {
   float4 albedo;
@@ -105,14 +112,6 @@ struct BaseTreeHeader<T>
   property uint32_t page_size_exp {
     get { return buffer.Load<uint32_t, 12>(); }
   };
-
-  property uint32_t allocated_leaf_count {
-    get { return buffer.Load<uint32_t, 24>(); }
-  };
-
-  property uint32_t allocated_branch_count {
-    get { return buffer.Load<uint32_t, 28>(); }
-  };
 };
 
 struct RWTreeHeader : BaseTreeHeader<RWByteBuffer> {
@@ -127,22 +126,41 @@ struct RWTreeHeader : BaseTreeHeader<RWByteBuffer> {
     buffer.data.InterlockedAdd(20, amount, val);
     return val;
   }
+
+  const uint32_t AllocateEmissiveLeafVoxels(const uint32_t amount) {
+    uint32_t val;
+    buffer.data.InterlockedAdd(24, amount, val);
+    return val;
+  }
+
+  const int32_t DeallocateEmissiveLeafVoxels(const uint32_t amount) {
+    uint32_t val;
+    buffer.data.InterlockedAdd(24, -amount, val);
+    return val;
+  }
+
+  property uint32_t emissive_leaf_count {
+    get { return buffer.data.Load(24); }
+  }
 };
 
-struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
+struct TreeHeader : BaseTreeHeader<ByteBuffer> {
+  property uint32_t emissive_leaf_count {
+    get { return buffer.Load<uint32_t, 24>(); }
+  };
+}
 
 // clang-format off
 #ifndef VOXEL_TREE_SET_BINDING
   #define VOXEL_TREE_SET_BINDING -1
 #endif
 
+
 #ifdef VOXEL_TREE_ATOMIC
 
   [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
   RWStructuredBuffer<AtomicBranchNode> voxel_tree[];
   [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-  RWStructuredBuffer<Atomic<float>> voxel_tree_luminance[];
-  [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
   RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
 
 #else
@@ -152,8 +170,6 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     RWStructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-    RWStructuredBuffer<float> voxel_tree_luminance[];
-    [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
     RWStructuredBuffer<LeafNode> voxel_tree_leaf[];
 
   #else
@@ -161,12 +177,21 @@ struct TreeHeader : BaseTreeHeader<ByteBuffer> {}
     [[vk::binding(0, VOXEL_TREE_SET_BINDING)]]
     StructuredBuffer<BranchNode> voxel_tree[];
     [[vk::binding(1, VOXEL_TREE_SET_BINDING)]]
-    StructuredBuffer<float> voxel_tree_luminance[];
-    [[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
     StructuredBuffer<LeafNode> voxel_tree_leaf[];
 
   #endif
 
+#endif
+
+[[vk::binding(2, VOXEL_TREE_SET_BINDING)]]
+#ifdef VOXEL_TREE_ATOMIC_EMISSIVE
+RWStructuredBuffer<AtomicEmissiveLeaf> voxel_tree_emissive_leaf[];
+#else
+#ifdef VOXEL_TREE_READ_WRITE
+RWStructuredBuffer<EmissiveLeaf> voxel_tree_emissive_leaf[];
+#else
+StructuredBuffer<EmissiveLeaf> voxel_tree_emissive_leaf[];
+#endif
 #endif
 
 #ifdef VOXEL_TREE_READ_WRITE
@@ -194,9 +219,16 @@ static const uint32_t memory_index = spirv_asm {
         result:$$uint = OpLoad builtin(LocalInvocationIndex:uint);
     };
 
+static const uint32_t3 packed_tree_index_shift =
+    uint32_t3(0, voxel_tree_header.max_depth << 1, (voxel_tree_header.max_depth << 1) << 1);
+
 uint32_t PackTreeIndex(const uint32_t3 tree_index) {
-  return SumComponents((tree_index) << uint32_t3(0, voxel_tree_header.max_depth << 1,
-                                                 (voxel_tree_header.max_depth << 1) << 1));
+  return SumComponents((tree_index) << packed_tree_index_shift);
+}
+
+uint32_t3 UnpackTreeIndex(const uint32_t packed_tree_index) {
+  return (packed_tree_index >> packed_tree_index_shift) &
+         uint32_t3((1 << (voxel_tree_header.max_depth << 1)) - 1);
 }
 
 float3 GetWorldPositionCenter(const uint32_t3 tree_index, const uint32_t level) {
@@ -287,7 +319,7 @@ float3 StepTreeRay(const float3 ray_dir_step, const float3 ray_dir, const float3
                neighbor_max_bound - voxel_clamp_epsilon);
 }
 
-LeafNode GetLeafNodeAtFilledIndex(const uint32_t3 tree_index, out uint32_t ptr, out uint32_t level) {
+Optional<LeafNode> GetLeafNodeAtIndex(const uint32_t3 tree_index, out uint32_t ptr, out uint32_t level) {
   uint32_t local_index = GetLocalIndex(tree_index, 0);
   BranchNode node;
 
@@ -304,6 +336,10 @@ LeafNode GetLeafNodeAtFilledIndex(const uint32_t3 tree_index, out uint32_t ptr, 
 #endif
 
     local_index = GetLocalIndex(tree_index, level);
+
+    if ((node.child_mask & (uint64_t(1) << local_index)) == 0) {
+      return none;
+    }
 
     ptr = node.child_ptr_data.child_ptr + local_index;
 
@@ -343,6 +379,24 @@ void TraverseTreeFromLevelPtr(inout uint32_t ptr, inout uint32_t level, inout Br
 
     ptr = node.child_ptr_data.child_ptr + local_index;
   }
+}
+
+#ifdef VOXEL_TREE_READ_WRITE
+void AddEmissiveLeaf(const uint32_t3 tree_index) {
+  const uint32_t index = voxel_tree_header.AllocateEmissiveLeafVoxels(1);
+  const uint32_t page_index = index >> voxel_tree_header.page_size_exp;
+  const uint32_t page_offset = index - (page_index << voxel_tree_header.page_size_exp);
+  voxel_tree_emissive_leaf[page_index][page_offset].packed_tree_index = PackTreeIndex(tree_index);
+}
+#endif
+
+float3 GetNormal(const float3 voxel_center, const float3 surface_position) {
+  const float3 hit_offset = surface_position - voxel_center;
+  const float3 abs_hit_offset = abs(surface_position - voxel_center);
+  return sign(hit_offset) *
+         (abs_hit_offset.x > abs_hit_offset.y && abs_hit_offset.x > abs_hit_offset.z
+              ? float3(1.0f, 0.0f, 0.0f)
+              : (abs_hit_offset.y > abs_hit_offset.z ? float3(0.0f, 1.0f, 0.0f) : float3(0.0f, 0.0f, 1.0f)));
 }
 
 #ifndef VOXEL_TREE_ATOMIC
@@ -437,13 +491,7 @@ void Raycast(const float3 ray_origin, float3 ray_dir, out RaycastResult result, 
   result.leaf_ptr = ptr;
 
   const float3 voxel_center = GetWorldPositionCenter(result.hit_tree_index, result.hit_level);
-  const float3 hit_offset = (result.hit_position - voxel_center);
-  const float3 abs_hit_offset = abs(result.hit_position - voxel_center);
-  result.hit_normal =
-      sign(hit_offset) *
-      (abs_hit_offset.x > abs_hit_offset.y && abs_hit_offset.x > abs_hit_offset.z
-           ? float3(1.0f, 0.0f, 0.0f)
-           : (abs_hit_offset.y > abs_hit_offset.z ? float3(0.0f, 1.0f, 0.0f) : float3(0.0f, 0.0f, 1.0f)));
+  result.hit_normal = GetNormal(voxel_center, result.hit_position);
 }
 
 #else

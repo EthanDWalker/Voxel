@@ -35,6 +35,10 @@ struct SparseVoxelTree {
     u16 data;
   };
 
+  struct EmissiveLeaf {
+    u32 packed_index;
+  };
+
   struct alignas(GPU_ALIGNMENT) TreeHeader {
     // const
     f32 _min_bound = MIN_BOUND;
@@ -45,14 +49,13 @@ struct SparseVoxelTree {
     // non-const
     u32 leaf_count;
     u32 branch_count;
-    u32 allocated_leaf_count;
-    u32 allocated_branch_count;
+    u32 emissive_count;
   };
 
   std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>> branch_pages;
-  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, f32>>> branch_luminance_pages;
-
   std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, LeafNode>>> leaf_pages;
+  std::vector<std::unique_ptr<VulkanBuffer<BufferType::StructuredBuffer, EmissiveLeaf>>> emissive_leaf_pages;
+
   VulkanDescriptorLayout descriptor_layout;
   VulkanDescriptor descriptor;
   VulkanBuffer<BufferType::StructuredBuffer, TreeHeader> tree_header_buffer = "tree header buffer";
@@ -64,6 +67,7 @@ struct SparseVoxelTree {
 
   void ResizeBranch(const u32 count);
   void ResizeLeaf(const u32 count);
+  void ResizeEmissiveLeaf(const u32 count);
 };
 
 static constexpr Vec3u32 GetTreeIndex(const Vec3f32 p) {

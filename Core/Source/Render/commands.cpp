@@ -27,31 +27,16 @@ void FlushFillVolumeCmds() {
     render_context->fill_volume_cmds.clear();
   }
 
-  SCOPED_TIMER("Fill Volume Cmds");
-
   const Vec3u32 extent = local_cmds[0].max_tree_index - local_cmds[0].min_tree_index;
 
   SparseVoxelTree::TreeHeader *const header =
       (SparseVoxelTree::TreeHeader *)render_context->voxel_tree.tree_header_host_buffer.host_address;
 
+  const u32 surface_area = 2 * (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
+  render_context->voxel_tree.ResizeEmissiveLeaf(header->emissive_count + surface_area);
+
   for (u32 depth = 1; depth <= SparseVoxelTree::MAX_DEPTH; depth++) {
     VulkanContext::Submit([local_cmds, depth](VulkanCommandBuffer &cmd) {
-      {
-        cmd.BeginDebugPass("svo header transfer");
-        VulkanSubPass<SubPassType::Transfer> pass;
-        pass.AddDependency<DeviceResourceType::TransferSrc>(
-            render_context->voxel_tree.tree_header_host_buffer);
-        pass.AddDependency<DeviceResourceType::TransferDst>(render_context->voxel_tree.tree_header_buffer);
-
-        cmd.BindSubPass(pass);
-
-        cmd.UploadBufferToBuffer(render_context->voxel_tree.tree_header_host_buffer,
-                                 render_context->voxel_tree.tree_header_buffer,
-                                 render_context->voxel_tree.tree_header_host_buffer.size);
-
-        cmd.EndDebugPass();
-      }
-
       {
         cmd.BeginDebugPass("fill volume cmds");
         VulkanSubPass<SubPassType::Compute> pass;
@@ -95,12 +80,7 @@ void FlushFillVolumeCmds() {
     });
 
     render_context->voxel_tree.ResizeBranch(header->branch_count);
-    header->allocated_branch_count = render_context->voxel_tree.branch_pages.size()
-                                     << SparseVoxelTree::PAGE_SIZE_EXP;
-
     render_context->voxel_tree.ResizeLeaf(header->leaf_count);
-    header->allocated_leaf_count = render_context->voxel_tree.leaf_pages.size()
-                                   << SparseVoxelTree::PAGE_SIZE_EXP;
   }
 }
 
@@ -122,9 +102,14 @@ void FlushClearVolumeCmds() {
     render_context->clear_volume_cmds.clear();
   }
 
-  ThreadPool::QueueTask([local_cmds]() {
-    VulkanContext::Submit([local_cmds](VulkanCommandBuffer &cmd) {
+  VulkanContext::Submit([local_cmds](VulkanCommandBuffer &cmd) {
+    {
       cmd.BeginDebugPass("clear volume cmds");
+
+      VulkanSubPass<SubPassType::Compute> pass;
+      pass.AddDependency<DeviceResourceType::RWBuffer>(render_context->voxel_tree.tree_header_buffer);
+
+      cmd.BindSubPass(pass);
 
       cmd.BindPipeline(render_context->clear_volume_pipeline);
       cmd.BindDescriptors({render_context->voxel_tree.descriptor});
@@ -136,7 +121,22 @@ void FlushClearVolumeCmds() {
         cmd.ClearPushConstants();
       }
       cmd.EndDebugPass();
-    });
+    }
+
+    {
+      cmd.BeginDebugPass("header transfer");
+      VulkanSubPass<SubPassType::Transfer> pass;
+      pass.AddDependency<DeviceResourceType::TransferSrc>(render_context->voxel_tree.tree_header_buffer);
+      pass.AddDependency<DeviceResourceType::TransferDst>(render_context->voxel_tree.tree_header_host_buffer);
+
+      cmd.BindSubPass(pass);
+
+      cmd.UploadBufferToBuffer(render_context->voxel_tree.tree_header_buffer,
+                               render_context->voxel_tree.tree_header_host_buffer,
+                               render_context->voxel_tree.tree_header_buffer.size);
+
+      cmd.EndDebugPass();
+    }
   });
 }
 
@@ -150,8 +150,9 @@ void QueueRaycastCmd(const Raycast &raycast,
 
 void FlushRaycastCmds() {
   ZoneScoped;
-  if (render_context->raycast_cmds.size() == 0)
+  if (render_context->raycast_cmds.size() == 0) {
     return;
+  }
 
   std::lock_guard<std::mutex> lock = std::lock_guard(render_context->raycast_cmd_mutex);
   VulkanContext::Submit([](VulkanCommandBuffer &cmd) {

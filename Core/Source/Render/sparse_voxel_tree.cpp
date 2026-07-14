@@ -10,8 +10,8 @@
 
 namespace Core {
 const u32 TREE_BUFFER_BINDING = 0;
-const u32 TREE_LUMINANCE_BUFFER_BINDING = 1;
-const u32 TREE_LEAF_BUFFER_BINDING = 2;
+const u32 TREE_LEAF_BUFFER_BINDING = 1;
+const u32 TREE_EMISSIVE_LEAF_BUFFER_BINDING = 2;
 
 SparseVoxelTree::SparseVoxelTree() {
   ZoneScoped;
@@ -26,8 +26,8 @@ SparseVoxelTree::SparseVoxelTree() {
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // tree
-  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // tree luminance
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // tree leafs
+  DescriptorBuilder::Bind<DeviceResourceType::Buffer>(nullptr, MAX_PAGES); // tree emissive leafs
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&tree_header_buffer);
   DescriptorBuilder::Bind<DeviceResourceType::Buffer>(&material_buffer);
   DescriptorBuilder::BuildLayout(VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_ALL_GRAPHICS,
@@ -38,26 +38,8 @@ SparseVoxelTree::SparseVoxelTree() {
 
   TreeHeader header{};
   header.branch_count = 64;
-  header.allocated_leaf_count = 1;
-  header.allocated_branch_count = 1;
 
-  branch_pages
-      .emplace_back(
-          std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>("branch page buffer"))
-      ->Create(PAGE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-  descriptor.Update<DeviceResourceType::Buffer>(TREE_BUFFER_BINDING, branch_pages.back().get(), 0);
-
-  branch_luminance_pages
-      .emplace_back(
-          std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, f32>>("branch luminance page buffer"))
-      ->Create(PAGE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-  descriptor.Update<DeviceResourceType::Buffer>(TREE_LUMINANCE_BUFFER_BINDING, branch_luminance_pages.back().get(), 0);
-
-  leaf_pages
-      .emplace_back(
-          std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, LeafNode>>("leaf page buffer"))
-      ->Create(PAGE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-  descriptor.Update<DeviceResourceType::Buffer>(TREE_LEAF_BUFFER_BINDING, leaf_pages.back().get(), 0);
+  ResizeBranch(64);
 
   {
     Material torch_material{};
@@ -121,14 +103,8 @@ void SparseVoxelTree::ResizeBranch(const u32 count) {
         .emplace_back(
             std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, BranchNode>>("branch page buffer"))
         ->Create(PAGE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    branch_luminance_pages
-        .emplace_back(
-            std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, f32>>("branch luminance page buffer"))
-        ->Create(PAGE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     descriptor.Update<DeviceResourceType::Buffer>(TREE_BUFFER_BINDING, branch_pages.back().get(), i);
-    descriptor.Update<DeviceResourceType::Buffer>(TREE_LUMINANCE_BUFFER_BINDING,
-                                                  branch_luminance_pages.back().get(), i);
   }
 }
 
@@ -142,6 +118,20 @@ void SparseVoxelTree::ResizeLeaf(const u32 count) {
         ->Create(PAGE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     descriptor.Update<DeviceResourceType::Buffer>(TREE_LEAF_BUFFER_BINDING, leaf_pages.back().get(), i);
+  }
+}
+
+void SparseVoxelTree::ResizeEmissiveLeaf(const u32 count) {
+  ZoneScoped;
+  const u32 new_page_count = count >> PAGE_SIZE_EXP;
+  for (u32 i = emissive_leaf_pages.size(); i <= new_page_count; i++) {
+    emissive_leaf_pages
+        .emplace_back(std::make_unique<VulkanBuffer<BufferType::StructuredBuffer, EmissiveLeaf>>(
+            "emissive leaf page buffer"))
+        ->Create(PAGE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    descriptor.Update<DeviceResourceType::Buffer>(TREE_EMISSIVE_LEAF_BUFFER_BINDING,
+                                                  emissive_leaf_pages.back().get(), i);
   }
 }
 } // namespace Core

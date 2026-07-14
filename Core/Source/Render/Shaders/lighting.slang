@@ -1,4 +1,6 @@
 #include "Include/common.slang"
+#define VOXEL_TREE_ATOMIC_EMISSIVE
+#define VOXEL_TREE_READ_WRITE
 #define VOXEL_TREE_SET_BINDING 2
 #include "Include/camera.slang"
 #include "Include/color.slang"
@@ -27,13 +29,13 @@ RWStructuredBuffer<AtomicHashSetKey> hash_set_key_arr;
 StructuredBuffer<HashSetKey> last_hash_set_key_arr;
 
 [[vk::binding(HASH_SET_DIFFUSE_DATA_BINDING, 3)]]
-RWStructuredBuffer<AtomicLightingData> diffuse_data_arr;
+RWStructuredBuffer<LightingData> diffuse_data_arr;
 
 [[vk::binding(HASH_SET_LAST_DIFFUSE_DATA_BINDING, 3)]]
 RWStructuredBuffer<LightingData> last_diffuse_data_arr;
 
 [[vk::binding(HASH_SET_SPECULAR_DATA_BINDING, 3)]]
-RWStructuredBuffer<AtomicLightingData> specular_data_arr;
+RWStructuredBuffer<LightingData> specular_data_arr;
 
 [[vk::binding(HASH_SET_LAST_SPECULAR_DATA_BINDING, 3)]]
 RWStructuredBuffer<LightingData> last_specular_data_arr;
@@ -152,269 +154,146 @@ float3 SampleSpecularLight(float3 origin, const float3 view_dir, Material materi
   return radiance;
 }
 
-struct EmissiveSample {
-  uint32_t3 tree_index;
-  float pdf;
-  uint32_t visibility_direction_index;
-}
-
 uint32_t GetNthSetBitIndex(uint32_t value, uint32_t n) {
   while (bool(n--)) {
-    if (value == 0)
-      return 0xFFFFFFFF;
-
     value &= value - 1;
   }
 
-  return bool(value) ? firstbitlow(value) : 0xFFFFFFFF;
+  return firstbitlow(value);
 }
 
-// index is the min index of the bound but still inside
-float GetSampleWeight(const float3 position, const float3 normal, const uint32_t3 index,
-                      const uint32_t level) {
-  const float3 min_bound = index * voxel_size + voxel_tree_header.min_bound;
-  const float3 max_bound =
-      (1 + index + (1 << ((voxel_tree_header.max_depth - (level + 1)) << 1))) * voxel_size +
-      voxel_tree_header.min_bound;
+static const uint32_t SENTINAL = 0xFFFFFFFF;
 
-  const float3 center = GetWorldPositionCenter(index, level);
-  const float3 offset = center - position;
+struct LightSample {
+  uint32_t3 tree_index;
+  Optional<LeafNode> leaf_node_opt;
+};
 
-  if (all(position >= min_bound && position <= max_bound)) {
-    // in bounds so cone cos_theta cant be computed
-    return 1.0f / dot(offset, offset);
-  } else {
-    const float cos_theta =
-        max(dot(normalize(min_bound - position), normal), dot(normalize(max_bound - position), normal));
-    return saturate(cos_theta) / dot(offset, offset);
+LightSample SampleLights(inout uint32_t seed) {
+  LightSample light_sample;
+  light_sample.leaf_node_opt = none;
+
+  const uint32_t sampled_index = (uint32_t)(FloatHash(seed) * voxel_tree_header.emissive_leaf_count);
+  seed ^= Hash(seed * sampled_index);
+  if (sampled_index == voxel_tree_header.emissive_leaf_count || voxel_tree_header.emissive_leaf_count == 0) {
+    return light_sample;
   }
+
+  const uint32_t sampled_page_index = sampled_index >> voxel_tree_header.page_size_exp;
+  const uint32_t sampled_page_offset =
+      sampled_index - (sampled_page_index << voxel_tree_header.page_size_exp);
+
+  const uint32_t sampled_value =
+      voxel_tree_emissive_leaf[sampled_page_index][sampled_page_offset].packed_tree_index.load();
+
+  if (sampled_value == SENTINAL) {
+    return light_sample;
+  }
+
+  const uint32_t3 sampled_tree_index = UnpackTreeIndex(sampled_value);
+
+  uint32_t ptr, level;
+  const Optional<LeafNode> node_opt = GetLeafNodeAtIndex(sampled_tree_index, ptr, level);
+
+  if (!node_opt.hasValue) {
+    const uint32_t ret =
+        voxel_tree_emissive_leaf[sampled_page_index][sampled_page_offset].packed_tree_index.compareExchange(
+            sampled_value, SENTINAL);
+
+    if (ret == sampled_value) {
+      // get the tail
+      const uint32_t tail_index = voxel_tree_header.emissive_leaf_count - 1;
+
+      // if we are at the tail we can safely decrement
+      if (tail_index == sampled_index) {
+        voxel_tree_header.DeallocateEmissiveLeafVoxels(1);
+        return light_sample;
+      }
+
+      // get the tail value
+      const uint32_t tail_page_index = tail_index >> voxel_tree_header.page_size_exp;
+      const uint32_t tail_page_offset = tail_index - (tail_page_index << voxel_tree_header.page_size_exp);
+      const uint32_t tail_value =
+          voxel_tree_emissive_leaf[tail_page_index][tail_page_offset].packed_tree_index.load();
+
+      // try to claim the tail value so that we can swap
+      const uint32_t ret =
+          voxel_tree_emissive_leaf[tail_page_index][tail_page_offset].packed_tree_index.compareExchange(
+              tail_value, SENTINAL);
+
+      // if we failed to claim the tail then restore sampled_value so that we can try again
+      if (tail_value == SENTINAL || ret == SENTINAL) {
+        voxel_tree_emissive_leaf[sampled_page_index][sampled_page_offset].packed_tree_index.store(
+            sampled_value);
+        return light_sample;
+      }
+
+      // if we succeed in claiming the tail value then we can move the tail value to a safe
+      // region and decrement
+      if (ret == tail_value) {
+        voxel_tree_emissive_leaf[sampled_page_index][sampled_page_offset].packed_tree_index.store(tail_value);
+        voxel_tree_header.DeallocateEmissiveLeafVoxels(1);
+      }
+    }
+
+    return light_sample;
+  }
+
+  light_sample.leaf_node_opt = node_opt.value;
+  light_sample.tree_index = sampled_tree_index;
+
+  return light_sample;
 }
 
-Optional<EmissiveSample> GetRandomVisibleEmissive(const float3 origin, const float3 normal,
-                                                  inout uint32_t seed) {
-  float rand = FloatHash(seed);
-  float pdf = 1.0f;
+Reservoir<float3> ResampleLights(const float3 origin, const float3 normal, const uint32_t sample_count,
+                                 inout uint32_t seed) {
+  Reservoir<float3> reservoir = {};
+  for (uint32_t i = 0; i < sample_count; i++) {
+    const LightSample light_sample = SampleLights(seed);
 
-  float total_weight = 0.0f;
-  for (uint32_t i = 0; i < 64; i++) {
-    total_weight +=
-        voxel_tree_luminance[0][i] *
-        GetSampleWeight(origin, normal, GetLocalOffset(i) << ((voxel_tree_header.max_depth - 1) << 1), 0);
+    if (!light_sample.leaf_node_opt.hasValue) {
+      continue;
+    }
+
+    const LeafNode node = light_sample.leaf_node_opt.value;
+
+    const uint32_t sampled_visiblity_index = (uint32_t)(FloatHash(seed) * countbits(node.visibility_mask));
+    const float3 sampled_normal =
+        visibility_direction_arr[GetNthSetBitIndex(node.visibility_mask, sampled_visiblity_index)];
+
+    seed ^= Hash(seed * node.visibility_mask);
+    float3 tangent, bitangent;
+    GetNormalBasis(sampled_normal, tangent, bitangent);
+    const float epsilon = 1e-4f;
+    const float2 sampled_surface_pos = (voxel_size * (1.0f - epsilon)) * (UniformRandom2(seed) - 0.5f);
+    seed ^= Hash(seed);
+
+    const float3 sampled_position =
+        GetWorldPositionCenter(light_sample.tree_index, voxel_tree_header.max_depth - 1) +
+        sampled_normal * (voxel_size * (0.5f - epsilon)) + tangent * sampled_surface_pos.x +
+        bitangent * sampled_surface_pos.y;
+    const float cheap_pdf = 1.0f / (voxel_tree_header.emissive_leaf_count * countbits(node.visibility_mask) *
+                                    voxel_size * voxel_size);
+
+    const float3 sampled_offset = sampled_position - origin;
+    const float3 sample_dir = normalize(sampled_offset);
+
+    const float cos_terms = saturate(dot(sample_dir, normal)) * saturate(dot(-sample_dir, sampled_normal));
+    if (cos_terms == 0.0f) {
+      continue;
+    }
+
+    const float geometric_factor = cos_terms / dot(sampled_offset, sampled_offset);
+
+    // approximating f_d * G * L_e
+    const float target_pdf = length((material_arr[node.material_index].albedo.rgb *
+                                     material_arr[node.material_index].emissive * geometric_factor) /
+                                    PI);
+
+    reservoir.Update(sampled_position, target_pdf / cheap_pdf, FloatHash(seed));
   }
 
-  if (total_weight == 0.0f) {
-    return none;
-  }
-
-  rand = max((rand * total_weight) - 1e-5f, 0.0f);
-
-  float acc_weight = 0.0f;
-  uint32_t local_index;
-  BranchNode node;
-  for (uint32_t i = 0; i < 64; i++) {
-    const float weight =
-        voxel_tree_luminance[0][i] *
-        GetSampleWeight(origin, normal, GetLocalOffset(i) << ((voxel_tree_header.max_depth - 1) << 1), 0);
-    acc_weight += weight;
-    if (rand <= acc_weight) {
-      if (weight == 0.0f) {
-        return none;
-      }
-
-      local_index = i;
-      pdf *= (weight / total_weight);
-      node = voxel_tree[0][i];
-      break;
-    }
-  }
-
-  uint32_t3 index = GetLocalOffset(local_index) << ((voxel_tree_header.max_depth - 1) << 1);
-  for (uint32_t level = 1;; level++) {
-    seed = Hash(seed * local_index);
-
-    const uint32_t page_index = node.child_ptr_data.child_ptr >> voxel_tree_header.page_size_exp;
-    const uint32_t page_offset =
-        node.child_ptr_data.child_ptr - (page_index << voxel_tree_header.page_size_exp);
-
-    const uint32_t level_shift = (voxel_tree_header.max_depth - (level + 1)) << 1;
-    total_weight = 0.0f;
-
-    uint32_t child_mask_low = (uint32_t)node.child_mask;
-    uint32_t child_mask_high = (uint32_t)(node.child_mask >> 32);
-
-    while (bool(child_mask_low)) {
-      const uint32_t i = firstbitlow(child_mask_low);
-      total_weight += voxel_tree_luminance[page_index][page_offset + i] *
-                      GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
-      child_mask_low &= child_mask_low - 1;
-    }
-
-    while (bool(child_mask_high)) {
-      const uint32_t i = firstbitlow(child_mask_high) + 32;
-      total_weight += voxel_tree_luminance[page_index][page_offset + i] *
-                      GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
-      child_mask_high &= child_mask_high - 1;
-    }
-
-    acc_weight = 0.0f;
-    rand = max((FloatHash(seed) * total_weight) - 1e-5f, 0.0f);
-
-    child_mask_low = (uint32_t)node.child_mask;
-    child_mask_high = (uint32_t)(node.child_mask >> 32);
-    while (bool(child_mask_low)) {
-      const uint32_t i = firstbitlow(child_mask_low);
-      const float weight = voxel_tree_luminance[page_index][page_offset + i] *
-                           GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
-      acc_weight += weight;
-      if (rand <= acc_weight) {
-        local_index = i;
-        pdf *= (weight / total_weight);
-        child_mask_high = 0;
-        node = voxel_tree[page_index][page_offset + i];
-        break;
-      }
-
-      child_mask_low &= child_mask_low - 1;
-    }
-
-    while (bool(child_mask_high)) {
-      const uint32_t i = firstbitlow(child_mask_high) + 32;
-      const float weight = voxel_tree_luminance[page_index][page_offset + i] *
-                           GetSampleWeight(origin, normal, index + (GetLocalOffset(i) << level_shift), level);
-      acc_weight += weight;
-      if (rand <= acc_weight) {
-        if (weight == 0.0f) {
-          return none;
-        }
-
-        local_index = i;
-        pdf *= (weight / total_weight);
-        node = voxel_tree[page_index][page_offset + i];
-        break;
-      }
-
-      child_mask_high &= child_mask_high - 1;
-    }
-
-    index += GetLocalOffset(local_index) << level_shift;
-
-    if (node.child_ptr_data.is_leaf) {
-      total_weight = voxel_tree_luminance[page_index][page_offset];
-      break;
-    }
-  }
-
-  const uint32_t leaf_page_index = node.child_ptr_data.child_ptr >> voxel_tree_header.page_size_exp;
-  const uint32_t leaf_page_offset =
-      node.child_ptr_data.child_ptr - (leaf_page_index << voxel_tree_header.page_size_exp);
-
-  acc_weight = 0.0f;
-  seed = Hash(seed * local_index);
-  rand = max((FloatHash(seed) * total_weight) - 1e-5f, 0.0f);
-  LeafNode leaf_node = {};
-  uint32_t direction_index = 0;
-  for (uint32_t i = 0; i < 64; i++) {
-    leaf_node = voxel_tree_leaf[leaf_page_index][leaf_page_offset + i];
-    if (leaf_node.visibility_mask != 0) {
-      const float weight =
-          material_arr[leaf_node.material_index].emissive * countbits(leaf_node.visibility_mask);
-      acc_weight += weight;
-
-      if (rand <= acc_weight) {
-        if (weight == 0.0f) {
-          return none;
-        }
-        local_index = i;
-        seed = Hash(seed * local_index);
-        rand = max((FloatHash(seed) * countbits(leaf_node.visibility_mask)) - 1e-5f, 0.0f);
-
-        const uint32_t bit_index = (uint32_t)floor(rand);
-        direction_index = GetNthSetBitIndex(leaf_node.visibility_mask, bit_index);
-
-        break;
-      }
-    }
-  }
-
-  index += GetLocalOffset(local_index);
-
-  EmissiveSample emissive_sample;
-  emissive_sample.pdf = pdf;
-  emissive_sample.tree_index = index;
-  emissive_sample.visibility_direction_index = direction_index;
-
-  return emissive_sample;
-}
-
-float3 LightSampleDiffuseLight(const float3 origin, const float3 normal, inout uint32_t seed) {
-  float3 throughput = 1.0f;
-  float3 radiance = 0.0f;
-
-  const Optional<EmissiveSample> sample_opt = GetRandomVisibleEmissive(origin, normal, seed);
-  if (!sample_opt.hasValue) {
-    return 0.0f;
-  }
-
-  const float3 emissive_normal = visibility_direction_arr[sample_opt.value.visibility_direction_index];
-  float3 sample_pos = GetWorldPositionCenter(sample_opt.value.tree_index, voxel_tree_header.max_depth - 1);
-  sample_pos += ((voxel_size / 2.0f)) * emissive_normal;
-
-  const float3 sample_dir = normalize(sample_pos - origin);
-
-  const float cos2_theta = dot(sample_dir, normal) * dot(-sample_dir, emissive_normal);
-
-  if (cos2_theta <= 0.0f) {
-    return 0.0f;
-  }
-
-  const float distance = length(sample_pos - origin);
-
-  RaycastResult res;
-  Raycast(origin, sample_dir, res, distance);
-
-  if (res.hit) {
-    if (res.t + 1e-1f >= distance && all(res.hit_normal == emissive_normal)) {
-      const Material material = material_arr[res.hit_node.material_index];
-      radiance = (material.albedo.rgb * material.emissive * cos2_theta) /
-                 (PI * sample_opt.value.pdf * distance * distance);
-    }
-  }
-
-  return radiance;
-}
-
-float3 BRDFSampleDiffuseLight(float3 origin, float3 normal, const uint32_t max_bounce_count,
-                              inout uint32_t seed) {
-  float3 throughput = 1.0f;
-  float3 radiance = 0.0f;
-
-  for (uint32_t i = 0; i < max_bounce_count; i++) {
-    const float3 ray_dir = SampleCosineWeightedHemisphere(normal, UniformRandom2(seed));
-
-    RaycastResult res;
-    Raycast(origin, ray_dir, res);
-
-    if (!res.hit) {
-      // radiance += throughput * SampleEnvironmentColor(ray_dir);
-      break;
-    }
-
-    const Material material = material_arr[res.hit_node.material_index];
-    normal = res.hit_normal;
-
-    radiance += throughput * material.emissive * material.albedo.rgb;
-    throughput *= material.albedo.rgb * (1.0f - material.metallic);
-
-    if (all(throughput < 1e-2f) || material.emissive != 0.0f) {
-      break;
-    }
-
-    seed = Hash(seed ^ (res.leaf_ptr) ^ (i * 4312u));
-    origin =
-        StepTreeRaySingle(GetWorldPositionCenter(res.hit_tree_index, res.hit_level), normal, res.hit_level);
-  }
-
-  return radiance;
+  return reservoir;
 }
 
 struct PushConstants {
@@ -423,14 +302,19 @@ struct PushConstants {
   uint32_t frame_number;
 };
 
+uint32_t countbits(const uint32_t4 v) {
+  return countbits(v.x) + countbits(v.y) + countbits(v.z) + countbits(v.w);
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushConstants info) {
   uint32_t2 image_size;
   image.GetDimensions(image_size.x, image_size.y);
 
-  if (all(image_size <= dispatch_id))
+  if (all(image_size <= (dispatch_id << DIFFUSE_PREPASS_SCALE_EXP))) {
     return;
+  }
 
   const float4x4 inv_view_proj =
       mul(LookAtInverse(camera.position, camera.position + camera.front, camera.up),
@@ -447,51 +331,65 @@ void CMain(const uint32_t2 dispatch_id: SV_DispatchThreadID, const uniform PushC
     const float3 voxel_center = GetWorldPositionCenter(res.hit_tree_index, res.hit_level);
 
     bool initialized;
-    const uint32_t lod_mask = LodMask(length(camera.position - voxel_center));
-
     const Optional<uint32_t> hash_set_index = HashSetFindOrInitialize(
-        PackTreeIndex(res.hit_tree_index & lod_mask), initialized, hash_set_key_arr, hash_set_header);
-
-    if (!hash_set_index.hasValue) {
-      printf("failed to find index");
-      return;
-    }
+        PackTreeIndex(res.hit_tree_index), initialized, hash_set_key_arr, hash_set_header);
 
     if (initialized) {
       const float last_distance = length(last_camera.position - voxel_center);
 
-      const uint32_t last_lod_mask = LodMask(length(last_camera.position - voxel_center));
-      const Optional<uint32_t> last_hash_set_index = HashSetFind(
-          PackTreeIndex(res.hit_tree_index & last_lod_mask), last_hash_set_key_arr, hash_set_header);
+      const Optional<uint32_t> last_hash_set_index =
+          HashSetFind(PackTreeIndex(res.hit_tree_index), last_hash_set_key_arr, hash_set_header);
 
       if (last_hash_set_index.hasValue) {
         const LightingData last_diffuse_data = last_diffuse_data_arr[last_hash_set_index.value];
 
-        diffuse_data_arr[hash_set_index.value].acc_lighting_r +=
-            last_diffuse_data.acc_lighting.r * (1.0f - info.diffuse_alpha);
-        diffuse_data_arr[hash_set_index.value].acc_lighting_g +=
-            last_diffuse_data.acc_lighting.g * (1.0f - info.diffuse_alpha);
-        diffuse_data_arr[hash_set_index.value].acc_lighting_b +=
-            last_diffuse_data.acc_lighting.b * (1.0f - info.diffuse_alpha);
+        diffuse_data_arr[hash_set_index.value].acc_lighting +=
+            last_diffuse_data.acc_lighting * (1.0f - info.diffuse_alpha);
         diffuse_data_arr[hash_set_index.value].sample_count +=
             last_diffuse_data.sample_count * (1.0f - info.diffuse_alpha);
       }
-    }
 
-    const float3 ray_origin = StepTreeRaySingle(voxel_center, res.hit_normal, res.hit_level);
+      const float3 ray_origin = StepTreeRaySingle(voxel_center, res.hit_normal, res.hit_level);
 
-    uint32_t seed = Hash(res.leaf_ptr ^ ((info.frame_number + 1) * 9781u) ^
-                         ((dispatch_id.x + 1) * (dispatch_id.y + 1) * 32197u));
+      uint32_t seed = Hash(res.leaf_ptr ^ ((info.frame_number + 1) * 9781u) ^
+                           ((dispatch_id.x + 1) * (dispatch_id.y + 1) * 32197u));
 
-    const Material material = material_arr[res.hit_node.material_index];
+      const Material material = material_arr[res.hit_node.material_index];
 
-    {
-      const float3 diffuse_light_sample = LightSampleDiffuseLight(ray_origin, res.hit_normal, seed);
+      {
+        const uint32_t SAMPLE_COUNT = 32;
+        const Reservoir<float3> reservoir = ResampleLights(ray_origin, res.hit_normal, SAMPLE_COUNT, seed);
+ 
+        const float3 sample_offset = reservoir.selected_sample - ray_origin;
+        const float3 sample_dir = normalize(sample_offset);
+        const uint32_t3 sample_tree_index = GetTreeIndex(reservoir.selected_sample);
+        const float3 sample_normal =
+            GetNormal(GetWorldPositionCenter(sample_tree_index, voxel_tree_header.max_depth - 1),
+                      reservoir.selected_sample);
+        RaycastResult light_res;
+        Raycast(ray_origin, sample_dir, light_res);
 
-      diffuse_data_arr[hash_set_index.value].sample_count += 1.0f;
-      diffuse_data_arr[hash_set_index.value].acc_lighting_r += diffuse_light_sample.r;
-      diffuse_data_arr[hash_set_index.value].acc_lighting_g += diffuse_light_sample.g;
-      diffuse_data_arr[hash_set_index.value].acc_lighting_b += diffuse_light_sample.b;
+        float3 radiance = 0.0f;
+        if (light_res.hit && all(sample_tree_index == light_res.hit_tree_index) &&
+            all(light_res.hit_normal == sample_normal)) {
+          const Material hit_material = material_arr[light_res.hit_node.material_index];
+          const float geometric_factor =
+              (saturate(dot(sample_dir, res.hit_normal) * dot(-sample_dir, light_res.hit_normal))) /
+              (dot(sample_offset, sample_offset));
+
+          const float3 color = (hit_material.albedo.rgb * hit_material.emissive * geometric_factor) / PI;
+          const float target_pdf = length(color);
+
+          const float W = reservoir.total_weight / (SAMPLE_COUNT * target_pdf);
+
+          if (all(color >= 0.0f)) {
+            radiance = color * W;
+          }
+        }
+
+        diffuse_data_arr[hash_set_index.value].sample_count += 1.0f;
+        diffuse_data_arr[hash_set_index.value].acc_lighting += radiance;
+      }
     }
   }
 }

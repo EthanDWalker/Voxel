@@ -1,32 +1,9 @@
 #pragma once
 
 static const uint32_t BEAM_PREPASS_SCALE_EXP = 2;
-static const uint32_t DIFFUSE_PREPASS_SCALE_EXP = 2;
+static const uint32_t DIFFUSE_PREPASS_SCALE_EXP = 1;
 
 static const float PI = 3.14159f;
-
-struct AxisAlignedQuad {
-  float3 point_1;
-  uint16_t material_index;
-  uint16_t normal_index;
-  float3 point_2;
-  float area;
-
-  static const float3 quad_normal_arr[6] = {
-    // clang-format off
-    float3(-1.0f, 0.0f, 0.0f),
-    float3(1.0f, 0.0f, 0.0f),
-    float3(0.0f, -1.0f, 0.0f),
-    float3(0.0f, 1.0f, 0.0f),
-    float3(0.0f, 0.0f, -1.0f),
-    float3(0.0f, 0.0f, 1.0f),
-    // clang-format on
-  };
-
-  property float3 normal {
-    get { return quad_normal_arr[normal_index]; }
-  }
-};
 
 interface IBuffer {
   T Load<T, let I : uint32_t>();
